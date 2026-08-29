@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Transparent</title>
+    <style>
+      /* No background anywhere, so --omit-background yields transparent pixels. */
+      html, body { margin: 0; background: transparent; }
+      #square { width: 100px; height: 100px; background: #ff00ff; }
+    </style>
+  </head>
+  <body>
+    <div id="square"></div>
+  </body>
+</html>

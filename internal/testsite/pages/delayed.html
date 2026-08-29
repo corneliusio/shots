@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Delayed</title>
+  </head>
+  <body>
+    <h1 id="immediate">immediate</h1>
+    <script>
+      // ?ms= controls the delay before #delayed appears; default 300ms.
+      const ms = Number(new URLSearchParams(location.search).get('ms') ?? 300);
+      setTimeout(() => {
+        const el = document.createElement('h1');
+        el.id = 'delayed';
+        el.textContent = 'delayed';
+        document.body.append(el);
+        window.shotsDelayedDone = true;
+      }, ms);
+    </script>
+  </body>
+</html>

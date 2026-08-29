@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Promise</title>
+  </head>
+  <body>
+    <h1 id="promise">promise</h1>
+    <script>
+      window.shotsValue = 42;
+      window.shotsPromise = new Promise((resolve) => {
+        setTimeout(() => resolve({ ok: true, value: 42 }), 100);
+      });
+      window.shotsRejected = () => Promise.reject(new Error('rejected on purpose'));
+    </script>
+  </body>
+</html>

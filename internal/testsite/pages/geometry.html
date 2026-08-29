@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Geometry</title>
+    <style>
+      /* Exact, font-independent boxes for selector geometry assertions. */
+      html, body { margin: 0; background: #ffffff; }
+      #page { position: relative; width: 1280px; height: 2000px; }
+      .box { position: absolute; }
+      #box-a { left: 10px; top: 20px; width: 100px; height: 50px; background: #ff0000; }
+      #box-b { left: 200px; top: 300px; width: 80px; height: 40px; background: #0000ff; }
+      #box-c { left: 40px; top: 1900px; width: 60px; height: 60px; background: #00ff00; }
+      .item { position: absolute; width: 30px; height: 30px; background: #000000; }
+      #item-1 { left: 400px; top: 100px; }
+      #item-2 { left: 440px; top: 100px; }
+      #item-3 { left: 480px; top: 100px; }
+    </style>
+  </head>
+  <body>
+    <div id="page">
+      <div class="box" id="box-a"></div>
+      <div class="box" id="box-b"></div>
+      <div class="box" id="box-c"></div>
+      <div class="item" id="item-1"></div>
+      <div class="item" id="item-2"></div>
+      <div class="item" id="item-3"></div>
+    </div>
+  </body>
+</html>

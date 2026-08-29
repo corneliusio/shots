@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage</title>
+  </head>
+  <body>
+    <h1 id="storage">storage</h1>
+    <pre id="cookies"></pre>
+    <pre id="local"></pre>
+    <script>
+      // ?set=value writes localStorage before reporting, so auth state capture
+      // and restore can be checked on any origin.
+      const set = new URLSearchParams(location.search).get('set');
+      if (set !== null) {
+        localStorage.setItem('shots', set);
+      }
+      document.getElementById('cookies').textContent = document.cookie;
+      document.getElementById('local').textContent = localStorage.getItem('shots') ?? '';
+    </script>
+  </body>
+</html>
