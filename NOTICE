@@ -1,0 +1,14 @@
+shots
+Copyright 2026 Mostly Serious
+
+This product includes software derived from shot-scraper
+(https://github.com/simonw/shot-scraper), Copyright Simon Willison,
+licensed under the Apache License, Version 2.0.
+
+shots is an independent Chromium-first Go rewrite. It reproduces
+shot-scraper's command names, flags, YAML formats, and authentication
+state-file format for compatibility. It shares no source code with the
+original Python implementation.
+
+Compatibility reference: shot-scraper 1.11, commit
+177f5abb32add7622d5152eb7064a2ce47dd2fbf.

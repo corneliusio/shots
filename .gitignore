@@ -1,0 +1,10 @@
+# Build output
+/shots
+/dist/
+
+# Go tooling
+*.test
+*.out
+
+# macOS
+.DS_Store
