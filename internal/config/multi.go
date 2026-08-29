@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -65,12 +66,12 @@ func decodeEntry(n *yaml.Node, path, baseDir string) (Entry, error) {
 	if n.Kind != yaml.MappingNode {
 		return nil, errorf(n, path, "expected a mapping, got %s", kindOf(n))
 	}
+	// Repeated spellings of one step are deduplicated here so that they reach
+	// decodeStruct and are reported as a duplicate field, not as a combination.
 	var found []string
 	for i := 0; i+1 < len(n.Content); i += 2 {
-		for _, step := range steps {
-			if n.Content[i].Value == step {
-				found = append(found, step)
-			}
+		if step := n.Content[i].Value; slices.Contains(steps, step) && !slices.Contains(found, step) {
+			found = append(found, step)
 		}
 	}
 	if len(found) > 1 {

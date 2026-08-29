@@ -239,6 +239,36 @@ func TestParseErrors(t *testing.T) {
 			msg:  "must not be empty",
 		},
 		{
+			name: "null sh",
+			yaml: "- sh:\n",
+			path: "entries[0].sh",
+			line: 1,
+			msg:  "must not be empty",
+		},
+		{
+			name: "sh with no arguments",
+			yaml: "- sh: []\n",
+			path: "entries[0].sh",
+			line: 1,
+			msg:  "must not be empty",
+		},
+		{
+			name: "empty server",
+			yaml: "- server: \"   \"\n",
+			path: "entries[0].server",
+			line: 1,
+			msg:  "must not be empty",
+		},
+		{
+			// A repeated step key is a duplicate field, not a combination of
+			// two different steps.
+			name: "duplicate step",
+			yaml: "- sh: a\n  sh: b\n",
+			path: "entries[0].sh",
+			line: 2,
+			msg:  "duplicate field",
+		},
+		{
 			name: "null python",
 			yaml: "- python:\n",
 			path: "entries[0].python",

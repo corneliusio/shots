@@ -43,12 +43,14 @@ type Command struct {
 
 // UnmarshalYAML implements [yaml.Unmarshaler].
 func (c *Command) UnmarshalYAML(n *yaml.Node) error {
-	if n.Kind == yaml.ScalarNode && n.Tag != "!!null" {
-		c.Shell = n.Value
+	if n.Kind == yaml.ScalarNode {
+		if n.Tag != "!!null" {
+			c.Shell = n.Value
+		}
 		return nil
 	}
 	var args []string
-	if err := n.Decode(&args); err != nil || len(args) == 0 {
+	if err := n.Decode(&args); err != nil {
 		return errors.New("expected a command string or a list of arguments")
 	}
 	c.Args = args
