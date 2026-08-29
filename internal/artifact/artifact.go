@@ -36,12 +36,17 @@ type Options struct {
 	Stdout io.Writer
 }
 
-// FilenameFor derives an automatic output filename from a URL, in the style of
-// shot-scraper: the host and path with punctuation folded to hyphens, plus the
-// given extension. It never returns a path separator.
+// FilenameFor derives an automatic output filename from a URL, matching
+// shot-scraper: take the host and path, fold ".", "/" and "-" to "-", drop
+// every character outside [A-Za-z0-9_-], and append the extension. Query
+// strings and fragments are excluded, and the result never contains a path
+// separator.
+//
+// Where upstream would produce a bare extension (a hidden ".png" for a URL with
+// no usable host or path), this returns "shot" as the stem instead.
 func FilenameFor(rawURL, ext string) string {
 	base := rawURL
-	if u, err := url.Parse(rawURL); err == nil && (u.Host != "" || u.Path != "") {
+	if u, err := url.Parse(rawURL); err == nil {
 		base = u.Host + u.Path
 	}
 	var b strings.Builder

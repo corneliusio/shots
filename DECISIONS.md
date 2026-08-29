@@ -42,6 +42,14 @@ Per-key strict decoding bypasses the library's merge handling, and silently
 half-supporting merges would be worse than saying so. Anchoring and aliasing a
 whole entry still works.
 
+**Automatic filenames match upstream except for the empty stem.**
+`artifact.FilenameFor` reproduces shot-scraper's `filename_for_url`: fold
+`netloc + path` on `.` and `/` to `-`, drop every character outside
+`[A-Za-z0-9_-]`, trim hyphens, append the extension. Queries and fragments are
+excluded because they are outside `path`. The one difference: a URL with no
+usable host or path leaves upstream with an empty stem and a hidden file named
+`.png`, where `shots` uses `shot.png`.
+
 **Cross-validating `quality` against the output file extension is not
 implemented.** Upstream's exact rule for "JPEG quality with a non-JPEG output"
 is ambiguous enough that guessing would create a difference that has to be

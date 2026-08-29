@@ -31,6 +31,10 @@ func TestFilenameFor(t *testing.T) {
 		{"", "png", "shot.png"},
 		{"///", "png", "shot.png"},
 		{"https://éxample.com/", "png", "xample-com.png"},
+		// Fragments and queries are outside netloc+path, like upstream.
+		{"https://example.com/a#b", "png", "example-com-a.png"},
+		{"?q=1", "png", "shot.png"},
+		{"https://example.com/../..", "png", "example-com.png"},
 	}
 	for _, tt := range tests {
 		if got := artifact.FilenameFor(tt.url, tt.ext); got != tt.want {
