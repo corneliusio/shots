@@ -310,11 +310,25 @@ func (p *Page) Wait(ctx context.Context, d time.Duration) error {
 
 // Eval runs the caller's JavaScript and returns its result as JSON, or nil for
 // undefined and for an empty source.
+func (p *Page) Eval(ctx context.Context, source string) (json.RawMessage, error) {
+	return p.evaluate(ctx, source, true)
+}
+
+// Exec runs the caller's JavaScript for its effect on the page and discards its
+// result. Chrome is never asked to serialize the value, so a script ending in
+// something JSON cannot hold — window, a DOM node, a cyclic object — still
+// succeeds.
+func (p *Page) Exec(ctx context.Context, source string) error {
+	_, err := p.evaluate(ctx, source, false)
+	return err
+}
+
+// evaluate runs source, optionally bringing its value back.
 //
 // A source that evaluates to a function is called, as Playwright's
 // page.evaluate does, so both "document.title" and "() => { ... }" behave as
 // upstream users expect. Promises are awaited, at either step.
-func (p *Page) Eval(ctx context.Context, source string) (json.RawMessage, error) {
+func (p *Page) evaluate(ctx context.Context, source string, byValue bool) (json.RawMessage, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, nil
 	}
@@ -329,16 +343,16 @@ func (p *Page) Eval(ctx context.Context, source string) (json.RawMessage, error)
 		if exc != nil {
 			return jsError(exc)
 		}
-		if result.ObjectID != "" {
+		// A handle has to go back to the page to be called, or to be
+		// serialized. A caller that wants neither is already done.
+		isFunc := result.Type == runtime.TypeFunction
+		if result.ObjectID != "" && (byValue || isFunc) {
 			body := "function() { return this; }"
-			if result.Type == runtime.TypeFunction {
+			if isFunc {
 				body = "function() { return this(); }"
 			}
-			result, exc, err = runtime.CallFunctionOn(body).
-				WithObjectID(result.ObjectID).
-				WithAwaitPromise(true).
-				WithReturnByValue(true).
-				Do(c)
+			call := runtime.CallFunctionOn(body).WithObjectID(result.ObjectID).WithAwaitPromise(true)
+			result, exc, err = call.WithReturnByValue(byValue).Do(c)
 			if err != nil {
 				return err
 			}

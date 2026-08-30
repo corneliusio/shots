@@ -280,6 +280,14 @@ set is smaller than four almost-identical ones, and none of the additions is
 surprising — waiting before extracting HTML is the same idea as waiting before a
 screenshot.
 
+**A before script and an evaluated script are two entry points, not one.**
+Merging them into a single `Page.Eval` made the shared lifecycle ask Chrome to
+serialize a value nobody reads, so `-j "…; window"` — or any script ending in a
+DOM node or a cyclic object — failed the whole command on `shot`, `html`, `pdf`
+and `accessibility`. `Page.Exec` now runs the same two steps without
+`returnByValue`, `Page.Eval` keeps it for `shots javascript`, whose result is
+the artifact, and both are two lines over one unexported `evaluate`.
+
 **`-i` is `--interactive`, and the script file flag is `--js-file` on every
 command.** Upstream spends `-i` on `javascript --input`, which is that command's
 script file, while every other command spells the same idea `--js-file`. One

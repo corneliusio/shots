@@ -156,7 +156,7 @@ func (f pageFlags) load(ctx context.Context, e *env, page *browser.Page, target,
 	if err := page.Wait(ctx, time.Duration(f.Wait)*time.Millisecond); err != nil {
 		return err
 	}
-	if _, err := page.Eval(ctx, script); err != nil {
+	if err := page.Exec(ctx, script); err != nil {
 		return err
 	}
 	return page.WaitFor(ctx, f.WaitFor)

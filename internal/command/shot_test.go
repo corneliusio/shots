@@ -333,6 +333,9 @@ func TestShotJavaScript(t *testing.T) {
 	}{
 		{"an expression runs", "document.querySelector('#box-a').dataset.shot = '1'", exitOK},
 		{"a function is called", "() => { document.querySelector('#box-a').dataset.shot = '1'; }", exitOK},
+		// The value of a before script is never wanted, so a script ending in
+		// something JSON cannot hold must not fail the shot.
+		{"a value JSON cannot hold is discarded", "document.querySelector('#box-a').dataset.shot = '1'; window", exitOK},
 		{"an exception fails the run", "throw new Error('boom')", exitFailure},
 	}
 	for _, tt := range tests {
