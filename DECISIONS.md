@@ -264,3 +264,104 @@ only against itself and left `--log-console` and the image on stdout unguarded.
 `requestLog` now keeps only the file closer: `json.Encoder` emits a record per
 `Write`, and an `*os.File` rejects a write that arrives after `Close` rather than
 racing it, so its `bufio.Writer` and flush-under-lock went away too.
+
+## Stage 3 — `javascript`, `html`, `pdf`, `accessibility`
+
+**One `pageFlags` struct carries the shared lifecycle, so every page command
+takes the same options.** PLAN.md Section 6 describes one sequence, and five
+commands now run it: connect, open a page in a fresh context, navigate, apply
+`--skip` and `--fail`, prompt when headed, wait, run script, wait for a
+condition. `pageFlags.open` is that sequence, `pageFlags.emit` is the write and
+the progress line, and `shot` lost its copy of all of it. The price is that
+every page command accepts flags upstream spreads unevenly: `--wait` and
+`--wait-for` on `javascript` and `accessibility`, `--silent` on `javascript`,
+`-i/--interactive` and `--devtools` everywhere. A shared lifecycle with one flag
+set is smaller than four almost-identical ones, and none of the additions is
+surprising — waiting before extracting HTML is the same idea as waiting before a
+screenshot.
+
+**`-i` is `--interactive`, and the script file flag is `--js-file` on every
+command.** Upstream spends `-i` on `javascript --input`, which is that command's
+script file, while every other command spells the same idea `--js-file`. One
+spelling everywhere is worth more than the shorthand, so `--js-file` reads the
+script and `-i` keeps the meaning it has on `shot`.
+
+**`shots javascript` takes its script from the argument, then `--javascript` or
+`--js-file`, then standard input.** Upstream reads the positional argument or
+`--input`, whose default is `-`. Rather than a second file flag with a default
+that hides standard input, the fallback is explicit: nothing on the command line
+means the script is read from standard input, and giving both an argument and
+`--javascript` is a usage error rather than a silent preference.
+
+**`--js-file` is now on every page command, with the `gh:` convention.**
+Stage 2 deferred it because a `--js-file` without `-` and `gh:` would be a worse
+promise than none. `gh:user/script.js` expands to
+`raw.githubusercontent.com/user/shot-scraper-scripts/main/script.js`, and
+`gh:user/repo/path/script.js` to that repository, with `.js` appended when it is
+missing — upstream's rule. Remote scripts are user-trusted code that nothing
+sandboxes, as PLAN.md Section 11 says.
+
+**`Page.Exec` became `Page.Eval`, which returns the result as JSON.** The
+`javascript` command needs the value that `shot` throws away, so there is one
+method rather than two. It evaluates in two steps because it has to: the first
+evaluation cannot ask for the value by value, or a source that evaluates to a
+function would come back as a description instead of a handle to call. Whatever
+comes back with a handle — a function to call, an object to serialize — is
+resolved by a second call, with promises awaited at both steps.
+
+**Results print as re-indented JSON, not re-encoded JSON.** `json.Indent` over
+Chrome's own bytes keeps object keys in the order the page produced them;
+decoding into a map would sort them alphabetically. `undefined` prints as
+`null`, matching upstream's `json.dumps(None)`. `--raw` unquotes a string result
+and leaves everything else as JSON, where upstream would print a Python `repr`.
+Text artifacts — the JSON result, HTML, the accessibility tree — end in a
+newline, so they are text files whether they went to a terminal or to disk.
+
+**`shots html` emits Playwright's `page.content()`, and a selector gives outer
+HTML.** The document is the doctype, when there is one, then
+`document.documentElement.outerHTML`, with a newline between them. PLAN.md
+Section 7 asks for the "first matching element's outer HTML", so a selector that
+matches nothing is an error naming the selector, not an empty file.
+
+**PDF paper is Playwright's table and Playwright's units.** CDP takes inches
+only, so the format names (`Letter` through `A6`) are inch pairs here, and
+`--width`/`--height` accept `in`, `cm`, `mm` and `px`, with a bare number
+meaning pixels as it does in CSS. Margins are always zero, which is Playwright's
+default and therefore what upstream's PDFs look like; no margin flag exists
+until somebody asks for one. `--format` together with `--width` or `--height` is
+a usage error, as upstream's is.
+
+**The PDF stream is read with a direct `IO.read`.** `PrintToPDF` runs with
+`transferMode: ReturnAsStream` as PLAN.md Section 7 requires, and
+`browser.stream` reads it a chunk at a time into `artifact.WriteStream`, so a
+large PDF never sits in memory. cdproto's generated `IO.read` helper drops the
+`base64Encoded` flag from the response, which a PDF stream always sets, so the
+command is issued through `cdp.Execute` and the flag is honoured.
+
+**`--media-screen` is emulated for the whole page load, not just for printing.**
+`Emulation.setEmulatedMedia` is part of configuring the page, next to
+`--reduced-motion`, because a second call replaces the first: one command
+carries the media type and the media features together. A page therefore lays
+out in screen media from the first paint, rather than switching underneath the
+printer.
+
+**The accessibility format drops what is not stable.** Chrome's tree is filtered
+into role, name, value, description, states, properties and ordered children:
+
+- Nodes Chrome marks ignored are dropped and their children take their place, so
+  an `aria-hidden` wrapper does not shape the output.
+- `InlineTextBox` nodes are dropped. They repeat their parent's text, split by
+  rendered line, so they change with the viewport — the opposite of stable.
+- A property that is on becomes a state (`focusable`, `pressed`, `checked`), one
+  that is off is left out entirely, and anything else keeps its value, so
+  `aria-checked="mixed"` stays a property with the value `"mixed"`.
+- Properties whose values are node references (`labelledby`, `controls`,
+  `owns`, …) are dropped: their values are exactly the transient Chrome node
+  identifiers PLAN.md Section 7 forbids. What they contribute is already in the
+  resolved `name` and `description`.
+
+**`--no-clobber` stays on `shot`.** PLAN.md Section 7 attaches it to
+screenshots, whose automatic filenames make an accidental overwrite plausible.
+The new commands write to standard output by default, and `pdf` picks a
+collision-free automatic name, so there is nothing to protect that the user did
+not name explicitly.
