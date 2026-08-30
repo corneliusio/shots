@@ -437,22 +437,30 @@ extension stays in the stem, an unknown type falls back to the URL's extension,
 and neither leaves `.bin`.
 
 **Authentication state is `browser.State`, in Playwright's `storage_state`
-shape.** Cookies come from `Storage.getCookies` for the page's browser context;
-local storage comes from `DOMStorage.getDOMStorageItems` for every origin the
-page has a frame for, which reads a cross-origin iframe's storage without
-evaluating anything in it. `sameSite` is omitted when Chrome reports none —
-Playwright's own type makes it optional — and a session cookie keeps
-Playwright's `-1` expiry, which restores as no expiry at all. A round-trip
-against a `storage_state` fixture is byte-for-byte, so a state file loses
-nothing passing through shots.
+shape.** Cookies come from `Storage.getCookies` for the page's browser context.
+`sameSite` is omitted when Chrome reports none — Playwright's own type makes it
+optional — and a session cookie keeps Playwright's `-1` expiry, which restores
+as no expiry at all. A round-trip against a `storage_state` fixture is
+byte-for-byte, so a state file loses nothing passing through shots.
 
-**Local storage restores through an intercepted blank page per origin.**
-PLAN.md Section 6 prescribes the page per origin; the request that page makes
-is answered with `Fetch.fulfillRequest` instead of being fetched, so restoring
-a state file never touches the network and works for an origin that is offline.
-The pages are opened in the browser context the command will use, and closed
-before it navigates. Values are passed to the page as a JSON literal, never
-spliced into source, and never logged.
+**Storage is exported for every origin the page visited, not just the ones it
+still frames.** Playwright accumulates visited origins as navigations commit,
+and a sign-in routinely leaves its token on an identity provider before
+redirecting to the application, so an export limited to the final page writes a
+state file that does not restore the session. `Page` collects the security
+origin of every `Page.frameNavigated`, which covers redirect hops and
+cross-origin iframes alike. `DOMStorage.getDOMStorageItems` answers only for an
+origin that still has a live frame ("Frame not found for the given storage id"),
+so each origin is read the same way it is written: through a page opened on it.
+
+**Export and restore share one intercepted blank page per origin.** PLAN.md
+Section 6 prescribes the page per origin for restore, and export needs the same
+thing, so `Browser.onOrigin` opens it, answers its request with
+`Fetch.fulfillRequest` instead of fetching it, runs one script and closes it.
+Neither direction touches the network, both work for an origin that is offline,
+and the pages live in the browser context the command will use, closed before it
+navigates. Values are passed to the page as a JSON literal, never spliced into
+source, and never logged.
 
 **`-a/--auth` takes a path, not `-`.** Upstream's is a Click file argument, so
 `-a -` reads the state from standard input — the same stream `--js-file -` and

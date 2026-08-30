@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,9 @@ type Page struct {
 	// response, which is the top-level navigation's final response.
 	docStatus int64
 	pending   map[network.RequestID]*Request
+	// visited are the origins the page has committed a frame on, including the
+	// ones a sign-in only passed through. [Page.State] exports their storage.
+	visited []string
 	// harFlushed stops new body fetches once the log has been read.
 	harFlushed bool
 }
@@ -260,6 +264,8 @@ func (p *Page) listen(opts PageOptions) {
 			if opts.HAR != nil {
 				opts.HAR.Failed(string(ev.RequestID), time.Now(), ev.ErrorText)
 			}
+		case *cdppage.EventFrameNavigated:
+			p.visit(ev.Frame.SecurityOrigin)
 		case *runtime.EventConsoleAPICalled:
 			if opts.OnConsole != nil {
 				opts.OnConsole(Message{Type: ev.Type.String(), Text: consoleText(ev.Args)})
@@ -282,6 +288,26 @@ func (p *Page) finish(id network.RequestID) *Request {
 	r := p.pending[id]
 	delete(p.pending, id)
 	return r
+}
+
+// visit records an origin a frame committed on. Anything without one — a
+// sandboxed iframe, about:blank — owns no storage.
+func (p *Page) visit(origin string) {
+	if !networkOrigin(origin) {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !slices.Contains(p.visited, origin) {
+		p.visited = append(p.visited, origin)
+	}
+}
+
+// origins lists the visited origins in a stable order.
+func (p *Page) origins() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Sorted(slices.Values(p.visited))
 }
 
 func (p *Page) answerAuth(ev *fetch.EventAuthRequired, opts PageOptions) {
@@ -440,18 +466,24 @@ func (p *Page) WaitFor(ctx context.Context, condition string) error {
 // eval evaluates an expression shots itself wrote and decodes the result.
 func (p *Page) eval(ctx context.Context, expr string, out any) error {
 	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-		result, exc, err := runtime.Evaluate(expr).WithAwaitPromise(true).WithReturnByValue(true).Do(c)
-		if err != nil {
-			return err
-		}
-		if exc != nil {
-			return jsError(exc)
-		}
-		if out == nil {
-			return nil
-		}
-		return json.Unmarshal(result.Value, out)
+		return evalIn(c, expr, out)
 	}))
+}
+
+// evalIn evaluates an expression shots itself wrote in the target c executes
+// against, and decodes the result into out, which may be nil.
+func evalIn(c context.Context, expr string, out any) error {
+	result, exc, err := runtime.Evaluate(expr).WithAwaitPromise(true).WithReturnByValue(true).Do(c)
+	if err != nil {
+		return err
+	}
+	if exc != nil {
+		return jsError(exc)
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(result.Value, out)
 }
 
 // documentHTML serializes the rendered document the way Playwright's

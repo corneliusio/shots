@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,11 +16,11 @@ import (
 // it headed, and a later --browser-arg wins over that.
 var headless = []string{"--browser-arg", "headless=new"}
 
-// authenticate signs in to url and returns the state file it wrote.
-func authenticate(t *testing.T, url string) (string, result) {
+// authenticate signs in to target and returns the state file it wrote.
+func authenticate(t *testing.T, target string) (string, result) {
 	t.Helper()
 	state := filepath.Join(t.TempDir(), "auth.json")
-	args := append([]string{"auth", url, state}, headless...)
+	args := append([]string{"auth", target, state}, headless...)
 	// The Enter the command waits for.
 	got := runStdin(t, "\n", args...)
 	if got.code != exitOK {
@@ -65,6 +66,27 @@ func TestAuthExportsCookiesAndStorage(t *testing.T) {
 	}
 	if !strings.Contains(got.stderr, "Hit <enter>") {
 		t.Errorf("stderr does not prompt for Enter:\n%s", got.stderr)
+	}
+}
+
+// A sign-in usually passes through an identity provider that leaves a token in
+// its own storage before handing over to the application, so the export covers
+// every origin the page visited, not just the one it ended on.
+func TestAuthExportsEveryVisitedOrigin(t *testing.T) {
+	identity, app := site(t), site(t)
+	start := identity.URL + "/storage.html?set=token&then=" + url.QueryEscape(app.URL+"/storage.html?set=session")
+	path, _ := authenticate(t, start)
+	state := readState(t, path)
+
+	want := map[string]string{identity.URL: "token", app.URL: "session"}
+	if len(state.Origins) != len(want) {
+		t.Fatalf("exported origins = %+v, want %v", state.Origins, want)
+	}
+	for _, origin := range state.Origins {
+		items := origin.LocalStorage
+		if len(items) != 1 || items[0] != (browser.Item{Name: "shots", Value: want[origin.Origin]}) {
+			t.Errorf("%s local storage = %+v, want %q", origin.Origin, items, want[origin.Origin])
+		}
 	}
 }
 

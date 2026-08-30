@@ -23,6 +23,12 @@
       }
       document.getElementById('cookies').textContent = document.cookie;
       document.getElementById('local').textContent = localStorage.getItem('shots') ?? '';
+      // ?then=URL continues to another loopback origin once this one is
+      // written, the way a sign-in leaves an identity provider for the app.
+      const then = params.get('then');
+      if (then !== null && then.startsWith('http://127.0.0.1:')) {
+        location.replace(then);
+      }
     </script>
   </body>
 </html>

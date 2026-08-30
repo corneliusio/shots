@@ -9,11 +9,8 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/domstorage"
 	"github.com/chromedp/cdproto/fetch"
 	"github.com/chromedp/cdproto/network"
-	cdppage "github.com/chromedp/cdproto/page"
-	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/storage"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
@@ -58,7 +55,13 @@ type Item struct {
 }
 
 // State exports the page's browser context: its cookies, and the local storage
-// of every origin the page holds a frame for.
+// of every origin the page visited.
+//
+// Every origin counts, not just the one still loaded: a sign-in commonly runs
+// through an identity provider that leaves a token in its own storage before
+// redirecting on, and a state file without it does not restore the session.
+// Storage is read from a page opened on the origin, because an origin whose
+// frame is gone answers nothing.
 func (p *Page) State(ctx context.Context) (State, error) {
 	state := State{Cookies: []Cookie{}, Origins: []Origin{}}
 	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
@@ -67,28 +70,24 @@ func (p *Page) State(ctx context.Context) (State, error) {
 			return fmt.Errorf("reading cookies: %w", err)
 		}
 		state.Cookies = exportCookies(cookies)
-		if err := domstorage.Enable().Do(c); err != nil {
-			return err
-		}
-		tree, err := cdppage.GetFrameTree().Do(c)
-		if err != nil {
-			return err
-		}
-		for _, origin := range frameOrigins(tree) {
-			id := &domstorage.StorageID{SecurityOrigin: origin, IsLocalStorage: true}
-			items, err := domstorage.GetDOMStorageItems(id).Do(c)
-			if err != nil {
-				return fmt.Errorf("reading local storage for %s: %w", origin, err)
-			}
-			if len(items) == 0 {
-				continue
-			}
-			state.Origins = append(state.Origins, Origin{Origin: origin, LocalStorage: exportItems(items)})
-		}
 		return nil
 	}))
 	if err != nil {
 		return State{}, err
+	}
+	for _, origin := range p.origins() {
+		var items []Item
+		err := p.browser.onOrigin(ctx, p.contextID, origin, func(c context.Context) error {
+			return evalIn(c, readStorage, &items)
+		})
+		if err != nil {
+			return State{}, fmt.Errorf("reading local storage for %s: %w", origin, err)
+		}
+		if len(items) == 0 {
+			continue
+		}
+		slices.SortFunc(items, func(a, b Item) int { return strings.Compare(a.Name, b.Name) })
+		state.Origins = append(state.Origins, Origin{Origin: origin, LocalStorage: items})
 	}
 	return state, nil
 }
@@ -96,11 +95,8 @@ func (p *Page) State(ctx context.Context) (State, error) {
 // restore writes state into a fresh browser context, before anything is loaded
 // into it.
 //
-// Cookies go in directly. Local storage belongs to an origin and can only be
-// written by a page on it, so each recorded origin gets a page of its own,
-// closed again before the caller navigates. Its request is answered with a
-// blank document instead of being fetched, so restoring a state file never
-// touches the network.
+// Cookies go in directly; local storage goes in through a page on its own
+// origin, which is closed again before the caller navigates.
 func (b *Browser) restore(ctx context.Context, contextID cdp.BrowserContextID, state *State) error {
 	if state == nil {
 		return nil
@@ -126,6 +122,23 @@ func (b *Browser) restore(ctx context.Context, contextID cdp.BrowserContextID, s
 }
 
 func (b *Browser) restoreOrigin(ctx context.Context, contextID cdp.BrowserContextID, origin Origin) error {
+	script, err := writeStorage(origin.LocalStorage)
+	if err != nil {
+		return err
+	}
+	return b.onOrigin(ctx, contextID, origin.Origin, func(c context.Context) error {
+		return evalIn(c, script, nil)
+	})
+}
+
+// onOrigin runs fn on a page of its own, opened on origin in the given browser
+// context and closed again afterwards.
+//
+// Local storage belongs to an origin and only a document on it can read or
+// write it. The page's request is answered with a blank document instead of
+// being fetched, so neither exporting nor restoring a state file touches the
+// network.
+func (b *Browser) onOrigin(ctx context.Context, contextID cdp.BrowserContextID, origin string, fn func(context.Context) error) error {
 	targetID, err := b.newTargetIn(ctx, contextID)
 	if err != nil {
 		return err
@@ -145,24 +158,16 @@ func (b *Browser) restoreOrigin(ctx context.Context, contextID cdp.BrowserContex
 			}))
 		}
 	})
-	script, err := writeStorage(origin.LocalStorage)
-	if err != nil {
-		return err
-	}
 	return run(ctx, pageCtx, b.timeout, chromedp.ActionFunc(func(c context.Context) error {
-		pattern := []*fetch.RequestPattern{{URLPattern: origin.Origin + "/*"}}
+		pattern := []*fetch.RequestPattern{{URLPattern: origin + "/*"}}
 		if err := fetch.Enable().WithPatterns(pattern).Do(c); err != nil {
 			return err
 		}
-		if err := chromedp.Navigate(origin.Origin + "/").Do(c); err != nil {
+		if err := chromedp.Navigate(origin + "/").Do(c); err != nil {
 			return err
 		}
-		_, exc, err := runtime.Evaluate(script).Do(c)
-		if err != nil {
+		if err := fn(c); err != nil {
 			return err
-		}
-		if exc != nil {
-			return jsError(exc)
 		}
 		return fetch.Disable().Do(c)
 	}))
@@ -186,40 +191,20 @@ func writeStorage(items []Item) (string, error) {
 	return "(items => { for (const item of items) localStorage.setItem(item.name, item.value); })(" + string(encoded) + ")", nil
 }
 
-// frameOrigins lists the distinct network origins of a page's frames, in a
-// stable order. Frames without one — about:blank, a sandboxed iframe — have no
-// storage to read.
-func frameOrigins(tree *cdppage.FrameTree) []string {
-	var origins []string
-	var walk func(*cdppage.FrameTree)
-	walk = func(node *cdppage.FrameTree) {
-		if origin := node.Frame.SecurityOrigin; networkOrigin(origin) && !slices.Contains(origins, origin) {
-			origins = append(origins, origin)
-		}
-		for _, child := range node.ChildFrames {
-			walk(child)
-		}
+// readStorage reads one origin's local storage into the JSON shape of [Item].
+const readStorage = `(() => {
+	const items = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const name = localStorage.key(i);
+		items.push({name, value: localStorage.getItem(name)});
 	}
-	walk(tree)
-	slices.Sort(origins)
-	return origins
-}
+	return items;
+})()`
 
 // networkOrigin reports whether an origin owns web storage shots can read or
 // write. about:blank, a sandboxed iframe's "null" and file: do not.
 func networkOrigin(origin string) bool {
 	return strings.HasPrefix(origin, "http://") || strings.HasPrefix(origin, "https://")
-}
-
-func exportItems(items []domstorage.Item) []Item {
-	out := make([]Item, 0, len(items))
-	for _, item := range items {
-		if len(item) == 2 {
-			out = append(out, Item{Name: item[0], Value: item[1]})
-		}
-	}
-	slices.SortFunc(out, func(a, b Item) int { return strings.Compare(a.Name, b.Name) })
-	return out
 }
 
 func exportCookies(cookies []*network.Cookie) []Cookie {
