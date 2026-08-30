@@ -497,3 +497,104 @@ decided plain-versus-zipped from the output filename alone, so `-z -o out.har`
 wrote an uncompressed file while `--har-zip` on `shot` honoured the flag.
 `harCmd.output` now returns the destination and whether it is zipped, the way
 `harFlags.path` already did, and the two entry points agree.
+
+## Stage 5 — `multi`, steps and process lifecycle
+
+**Server readiness is a TCP dial of the page the server was started for.**
+PLAN.md Section 7 asks for a 30-second readiness wait, but a configuration
+never names a port, and upstream simply starts the process and moves on.
+`serverAddress` takes the host and port of the first `http`/`https` URL at or
+after the `server:` entry — the canonical file is `- server: …` followed by
+`- url: http://localhost:8000/` — and `Server.Ready` dials it until it answers,
+fails immediately if the server exits first, and gives up after 30 seconds. A
+configuration with no URL after its server gets no wait: there is nothing to
+dial, and inventing a fixed sleep would be worse than the honest nothing.
+
+**A failed step stops the batch; a failed shot is reported and the batch carries
+on.** That split is PLAN.md Section 7's ("stop after a failed shell or Python
+step") and upstream's: everything after a step was written expecting it to have
+run, while one unreachable page among fifty is not a reason to abandon the other
+forty-nine. `--fail-on-error` stops at the first failing shot, as upstream's
+does. One difference from upstream: a run with failed shots exits 1 with a
+`1 of 2 entries failed` summary, where upstream reports each failure and then
+exits 0. A batch that quietly succeeds while writing nothing is the wrong
+default for a scheduled job.
+
+**Steps run in the configuration file's directory, and their output goes to
+standard error.** Upstream's `subprocess.run` inherits the caller's directory
+and streams. Resolving against the configuration instead makes a step consistent
+with every other path in the file — `output:` and `js_file:` already resolve
+there — so `shots multi site/shots.yml` behaves the same from any directory. A
+configuration read from standard input keeps the current directory, per PLAN.md
+Section 8. Sending a step's own standard output to shots' standard error is
+PLAN.md Section 10: stdout carries artifacts, and a `sh:` step's chatter is
+progress.
+
+**A batch's HAR is written after the last entry, not after each one.** One
+recorder spans every page, so `--har` is a session archive as PLAN.md Section 7
+requires. It is written when the batch reaches the end, including a batch with
+failed shots in it, and not at all when a failed step aborted the run — the same
+rule Stage 4 applied to a single page: an archive describes a run that
+finished. An entry with no `output` still loads its page while a HAR is being
+recorded, and writes no image; that is what upstream's injected `skip_shot` key
+does.
+
+**Chrome starts with the first shot, not with the batch.** An empty
+configuration, or one that only runs `sh:` steps and servers, never launches a
+browser. That is what makes "empty YAML is a successful no-op" literally true
+rather than "no-op after starting and stopping Chrome".
+
+**`--output` filters resolve the way the configuration's own paths do.**
+`Multi.Resolve` puts a filter through the same base directory as `output:`, so
+`-o one.png` matches `output: one.png` wherever the configuration lives, rather
+than matching only when it happens to sit in the current directory.
+
+**Python resolution is an ordered candidate list, like browser discovery.**
+`$SHOTS_PYTHON`, then `python3`, then `python`, each accepted only if
+`exec.LookPath` finds it; a variable pointing at something that is no longer
+there falls through instead of failing the run, exactly as `$SHOTS_BROWSER_PATH`
+does in `browser.Discover`. The error naming all three candidates can only
+appear while running a `python:` step, so a machine without Python runs
+everything else unaffected.
+
+**`pageFlags` split into `sessionFlags` and `pageFlags`.** The options that
+describe a whole run — which browser, which authentication state, `--timeout`,
+`--skip`/`--fail`, `--log-console`, `--silent` — are `sessionFlags`, which
+`multi` embeds; the ones that describe one page — `--javascript`, `--js-file`,
+`--wait`, `--wait-for`, `-i`, `--devtools` — stay in `pageFlags`, because a
+multi entry carries its own. `multi` therefore accepts `--bypass-csp`, which
+upstream has only on the page commands; one browser-flag set everywhere is worth
+more than reproducing that gap.
+
+**Every managed child gets its own process group, and cleanup is one path.**
+`process.Server` is the whole lifecycle: `Start` puts the child in a new process
+group (a job object on Windows), `Stop` signals the group, waits five seconds,
+kills the group, and reaps. `Run` is `Start` plus a wait, so a `sh:` step that is
+still running when the run is interrupted is torn down by the same code that
+stops a server. Signalling the group rather than the process is the point: a
+`server:` running `sh -c 'npm start'` is a shell whose children are the actual
+server, and a direct kill would leave them running — which the interrupt test
+asserts by watching a grandchild's process id.
+
+**Windows terminates the job outright; there is no graceful phase there.**
+PLAN.md Section 9 anticipates this: console processes have no SIGTERM
+equivalent, so `terminate` and `kill` are both `TerminateJobObject`, the
+five-second grace never elapses, and kill-on-close means an abrupt end to shots
+takes the tree with it. The implementation needs `golang.org/x/sys/windows`,
+which was already in the module graph through chromedp and is now a direct
+dependency; it is compiled and vetted for Windows here but exercised only by
+CI's Windows runner.
+
+**Reaping is bounded by `WaitDelay`.** A child's output goes through a pipe, and
+anything the child leaves running inherits it, so `cmd.Wait` can outlive the
+child by as long as its orphans live. `WaitDelay` closes the pipe after the same
+five seconds and reports `ErrWaitDelay`, which means "output left open", not a
+command that failed, so it is not turned into an error.
+
+**The CLI subprocess tests build the real binary, and the test binary plays the
+children.** Signal handling lives in `cmd/shots/main.go`; a test that installed
+its own would test the copy, so `go build` runs once per package test run and
+the tests drive the built binary. In the other direction, the processes a
+configuration starts are the test binary itself in a `-child` mode — print,
+write, exit, serve — which keeps the fixtures free of shell scripts and of
+anything that has to exist on the machine.
