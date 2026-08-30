@@ -199,29 +199,19 @@ func (b *Browser) executor(ctx context.Context) context.Context {
 	return cdp.WithExecutor(ctx, chromedp.FromContext(b.ctx).Browser)
 }
 
-// newTarget creates an isolated browser context and a page in it.
+// newBrowserContext creates an isolated browser context.
 //
 // chromedp's WithNewBrowserContext cannot be used: Chrome refuses
 // Target.createTarget in a fresh browser context unless newWindow is set, and
-// chromedp does not set it.
-func (b *Browser) newTarget(ctx context.Context) (cdp.BrowserContextID, target.ID, error) {
+// chromedp does not set it, so shots creates the context and its targets itself.
+func (b *Browser) newBrowserContext(ctx context.Context) (cdp.BrowserContextID, error) {
 	var contextID cdp.BrowserContextID
 	err := b.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
 		var err error
 		contextID, err = target.CreateBrowserContext().Do(b.executor(c))
 		return err
 	}))
-	if err != nil {
-		return "", "", err
-	}
-	targetID, err := b.newTargetIn(ctx, contextID)
-	if err != nil {
-		b.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-			return target.DisposeBrowserContext(contextID).Do(b.executor(c))
-		}))
-		return "", "", err
-	}
-	return contextID, targetID, nil
+	return contextID, err
 }
 
 // newTargetIn opens another page in an existing browser context, so it shares

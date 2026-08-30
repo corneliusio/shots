@@ -124,8 +124,7 @@ func (f sessionFlags) browserOptions() browser.Options {
 
 // newPage opens a page carrying the options every page of a session shares. The
 // caller fills the viewport and any logging it owns in opts.
-func (f sessionFlags) newPage(ctx context.Context, e *env, b *browser.Browser, state *browser.State, opts browser.PageOptions) (*browser.Page, error) {
-	opts.State = state
+func (f sessionFlags) newPage(ctx context.Context, e *env, bc *browser.Context, opts browser.PageOptions) (*browser.Page, error) {
 	opts.UserAgent = f.UserAgent
 	opts.ReducedMotion = f.ReducedMotion
 	opts.BypassCSP = f.BypassCSP
@@ -133,7 +132,7 @@ func (f sessionFlags) newPage(ctx context.Context, e *env, b *browser.Browser, s
 	if f.LogConsole {
 		opts.OnConsole = func(m browser.Message) { fmt.Fprintf(e.stderr, "%s: %s\n", m.Type, m.Text) }
 	}
-	return b.NewPage(ctx, opts)
+	return bc.NewPage(ctx, opts)
 }
 
 // check applies the --skip and --fail policy to a navigation's status.
@@ -167,13 +166,20 @@ func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts
 	if err != nil {
 		return nil, nil, err
 	}
-	page, err := f.newPage(ctx, e, b, state, opts)
+	bc, err := b.NewContext(ctx, state)
 	if err != nil {
+		b.Close()
+		return nil, nil, err
+	}
+	page, err := f.newPage(ctx, e, bc, opts)
+	if err != nil {
+		bc.Close()
 		b.Close()
 		return nil, nil, err
 	}
 	closer := func() {
 		page.Close()
+		bc.Close()
 		b.Close()
 	}
 	if err := f.load(ctx, e, page, target, script); err != nil {

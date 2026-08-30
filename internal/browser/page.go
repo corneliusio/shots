@@ -63,18 +63,49 @@ type PageOptions struct {
 	// HAR, when set, records every request the page makes. The caller reads
 	// the log after [Page.FlushHAR].
 	HAR *har.Recorder
-	// State, when set, is restored into the page's browser context before
-	// anything is loaded: cookies directly, local storage per origin.
-	State *State
 }
 
-// Page is one tab in its own isolated browser context.
+// Context is an isolated browser context. Pages opened in it share its cookies
+// and storage; nothing crosses from one context to another.
+type Context struct {
+	b  *Browser
+	id cdp.BrowserContextID
+}
+
+// NewContext creates an isolated browser context and restores state into it —
+// steps 4 and 5 of PLAN.md Section 6's lifecycle — so every page opened in it
+// starts signed in. The caller must call [Context.Close].
+func (b *Browser) NewContext(ctx context.Context, state *State) (*Context, error) {
+	id, err := b.newBrowserContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("creating browser context: %w", err)
+	}
+	c := &Context{b: b, id: id}
+	if err := b.restore(ctx, id, state); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+// Close disposes the context and every page still open in it.
+func (c *Context) Close() {
+	if c.id == "" {
+		return
+	}
+	// Best-effort cleanup that must not hang a command on its way out.
+	ctx, cancel := context.WithTimeout(c.b.ctx, 5*time.Second)
+	defer cancel()
+	target.DisposeBrowserContext(c.id).Do(c.b.executor(ctx))
+	c.id = ""
+}
+
+// Page is one tab in a browser context.
 type Page struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	browser   *Browser
-	contextID cdp.BrowserContextID
-	timeout   time.Duration
+	ctx     context.Context
+	cancel  context.CancelFunc
+	bc      *Context
+	timeout time.Duration
 	// mainFrame is written once, before any event listener exists, and read
 	// only afterwards.
 	mainFrame cdp.FrameID
@@ -94,18 +125,17 @@ type Page struct {
 	harFlushed bool
 }
 
-// NewPage opens a page in a fresh isolated browser context, so cookies and
-// storage never leak between pages. The caller must call [Page.Close].
-func (b *Browser) NewPage(ctx context.Context, opts PageOptions) (*Page, error) {
-	contextID, targetID, err := b.newTarget(ctx)
+// NewPage opens a page in the context. The caller must call [Page.Close].
+func (c *Context) NewPage(ctx context.Context, opts PageOptions) (*Page, error) {
+	b := c.b
+	targetID, err := b.newTargetIn(ctx, c.id)
 	if err != nil {
 		return nil, fmt.Errorf("creating page: %w", err)
 	}
 	p := &Page{
-		browser:   b,
-		contextID: contextID,
-		timeout:   b.timeout,
-		pending:   map[network.RequestID]*Request{},
+		bc:      c,
+		timeout: b.timeout,
+		pending: map[network.RequestID]*Request{},
 	}
 	p.ctx, p.cancel = chromedp.NewContext(b.ctx, chromedp.WithTargetID(targetID))
 	if err := start(ctx, p.ctx, p.timeout); err != nil {
@@ -120,12 +150,6 @@ func (b *Browser) NewPage(ctx context.Context, opts PageOptions) (*Page, error) 
 	}
 	p.listen(opts)
 	if err := p.configure(ctx, opts); err != nil {
-		p.Close()
-		return nil, err
-	}
-	// Step 5 of PLAN.md Section 6's lifecycle: state is restored before the
-	// caller navigates, so the first request already carries it.
-	if err := b.restore(ctx, contextID, opts.State); err != nil {
 		p.Close()
 		return nil, err
 	}
@@ -145,18 +169,11 @@ func (p *Page) resolveMainFrame(ctx context.Context) error {
 	}))
 }
 
-// Close closes the page and disposes its browser context.
+// Close closes the page, leaving its browser context to the caller who made it.
+// chromedp closes the target as the page's context is cancelled.
 func (p *Page) Close() {
 	if p.cancel != nil {
 		p.cancel()
-	}
-	if p.contextID != "" {
-		// The page is already gone; disposing its context is best-effort
-		// cleanup that must not hang a command that is on its way out.
-		ctx, cancel := context.WithTimeout(p.browser.ctx, 5*time.Second)
-		defer cancel()
-		target.DisposeBrowserContext(p.contextID).Do(p.browser.executor(ctx))
-		p.contextID = ""
 	}
 }
 

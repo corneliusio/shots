@@ -205,6 +205,27 @@ func TestMultiShots(t *testing.T) {
 		}
 	})
 
+	// One browser context serves the whole run, as upstream's does, so what one
+	// entry signs in or stores is there for the next.
+	t.Run("state carries from one entry to the next", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		cfg := writeConfig(t, dir, strings.Join([]string{
+			"- url: " + srv.URL + "/index.html",
+			"  output: first.png",
+			"  height: 100",
+			"  javascript: localStorage.setItem('shots', 'carried')",
+			"- url: " + srv.URL + "/index.html",
+			"  output: second.png",
+			"  height: 100",
+			"  wait_for: localStorage.getItem('shots') === 'carried'",
+			"",
+		}, "\n"))
+		if got := run(t, "multi", cfg, "--timeout", "5000"); got.code != exitOK {
+			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		}
+	})
+
 	t.Run("output filters choose the entries", func(t *testing.T) {
 		dir := t.TempDir()
 		cfg := writeConfig(t, dir, strings.Join([]string{

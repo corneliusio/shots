@@ -56,7 +56,12 @@ func (c *authCmd) Run(ctx context.Context, e *env) error {
 	if c.LogConsole {
 		opts.OnConsole = func(m browser.Message) { fmt.Fprintf(e.stderr, "%s: %s\n", m.Type, m.Text) }
 	}
-	page, err := b.NewPage(ctx, opts)
+	bc, err := b.NewContext(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer bc.Close()
+	page, err := bc.NewPage(ctx, opts)
 	if err != nil {
 		return err
 	}

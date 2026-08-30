@@ -65,7 +65,7 @@ type Item struct {
 func (p *Page) State(ctx context.Context) (State, error) {
 	state := State{Cookies: []Cookie{}, Origins: []Origin{}}
 	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-		cookies, err := storage.GetCookies().WithBrowserContextID(p.contextID).Do(p.browser.executor(c))
+		cookies, err := storage.GetCookies().WithBrowserContextID(p.bc.id).Do(p.bc.b.executor(c))
 		if err != nil {
 			return fmt.Errorf("reading cookies: %w", err)
 		}
@@ -77,7 +77,7 @@ func (p *Page) State(ctx context.Context) (State, error) {
 	}
 	for _, origin := range p.origins() {
 		var items []Item
-		err := p.browser.onOrigin(ctx, p.contextID, origin, func(c context.Context) error {
+		err := p.bc.b.onOrigin(ctx, p.bc.id, origin, func(c context.Context) error {
 			return evalIn(c, readStorage, &items)
 		})
 		if err != nil {

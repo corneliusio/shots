@@ -115,6 +115,10 @@ type batch struct {
 	harZip  bool
 
 	browser *browser.Browser
+	// bctx is the browser context every entry's page is opened in, so that a
+	// cookie or a local-storage value one entry writes is there for the next,
+	// as it is upstream.
+	bctx    *browser.Context
 	servers []*process.Server
 	failed  int
 }
@@ -289,14 +293,19 @@ func (b *batch) shot(ctx context.Context, entry config.Entry) error {
 	return b.cmd.emit(b.env, "Screenshot", target, output, bytes.NewReader(data), artifact.Options{NoClobber: b.cmd.NoClobber})
 }
 
-// page opens a fresh page for one entry, connecting to Chrome on the first one.
+// page opens a fresh page for one entry. The first entry to need one connects
+// to Chrome and creates the browser context the whole batch shares, which is
+// also where --auth is restored, once per run rather than once per entry.
 func (b *batch) page(ctx context.Context, entry config.Entry) (*browser.Page, error) {
-	if b.browser == nil {
+	if b.bctx == nil {
 		connected, err := browser.Connect(ctx, b.cmd.browserOptions())
 		if err != nil {
 			return nil, err
 		}
 		b.browser = connected
+		if b.bctx, err = connected.NewContext(ctx, b.state); err != nil {
+			return nil, err
+		}
 	}
 	width, height := entry.Width, entry.Height
 	if width == 0 {
@@ -305,7 +314,7 @@ func (b *batch) page(ctx context.Context, entry config.Entry) (*browser.Page, er
 	if height == 0 {
 		height = defaultHeight
 	}
-	return b.cmd.newPage(ctx, b.env, b.browser, b.state, browser.PageOptions{
+	return b.cmd.newPage(ctx, b.env, b.bctx, browser.PageOptions{
 		Width:       width,
 		Height:      height,
 		ScaleFactor: b.cmd.factor(),
@@ -325,6 +334,9 @@ func (b *batch) script(ctx context.Context, entry config.Entry) (string, error) 
 // close stops everything the batch started. Cleanup errors are reported rather
 // than returned: they must not hide whatever ended the run.
 func (b *batch) close() {
+	if b.bctx != nil {
+		b.bctx.Close()
+	}
 	if b.browser != nil {
 		b.browser.Close()
 	}
