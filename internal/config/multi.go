@@ -1,10 +1,7 @@
 package config
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,30 +33,11 @@ func LoadMulti(path string) (*Multi, error) {
 // a valid configuration with no entries.
 func ParseMulti(data []byte, baseDir string) (*Multi, error) {
 	m := &Multi{BaseDir: baseDir}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	var doc yaml.Node
-	switch err := dec.Decode(&doc); {
-	case errors.Is(err, io.EOF):
-		return m, nil
-	case err != nil:
-		return nil, &Error{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
+	root, err := document(data)
+	if err != nil {
+		return nil, err
 	}
-	// A file may hold several YAML documents; taking only the first would drop
-	// entries silently.
-	var extra yaml.Node
-	switch err := dec.Decode(&extra); {
-	case errors.Is(err, io.EOF):
-	case err != nil:
-		return nil, &Error{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
-	default:
-		return nil, errorf(&extra, "", "expected a single YAML document")
-	}
-
-	if len(doc.Content) == 0 {
-		return m, nil
-	}
-	root := resolve(doc.Content[0])
-	if root.Kind == yaml.ScalarNode && root.Tag == "!!null" {
+	if root == nil {
 		return m, nil
 	}
 	if root.Kind != yaml.SequenceNode {
@@ -156,10 +134,7 @@ func (e *Entry) validate(path string, line int, lines map[string]int) error {
 			}
 		}
 	}
-	if c.err != nil {
-		return c.err
-	}
-	return nil
+	return c.result()
 }
 
 // check collects the first validation failure for one mapping, reporting it
@@ -169,6 +144,15 @@ type check struct {
 	line  int
 	lines map[string]int
 	err   *Error
+}
+
+// result is the collected failure, as an error interface that is nil when there
+// was none — which a typed *Error would not be.
+func (c *check) result() error {
+	if c.err != nil {
+		return c.err
+	}
+	return nil
 }
 
 func (c *check) present(name string) bool {
@@ -197,6 +181,13 @@ func (c *check) fail(name, format string, args ...any) {
 	c.err = &Error{Path: field(c.path, name), Line: line, Msg: fmt.Sprintf(format, args...)}
 }
 
+// required reports a key that has to be there and to carry something.
+func (c *check) required(name, value string) {
+	if strings.TrimSpace(value) == "" {
+		c.fail(name, "required")
+	}
+}
+
 func (c *check) positive(name string, value int) {
 	if c.present(name) && value <= 0 {
 		c.fail(name, "must be positive")
@@ -204,6 +195,12 @@ func (c *check) positive(name string, value int) {
 }
 
 func (c *check) nonNegative(name string, value int) {
+	if c.present(name) && value < 0 {
+		c.fail(name, "must not be negative")
+	}
+}
+
+func (c *check) nonNegativeFloat(name string, value float64) {
 	if c.present(name) && value < 0 {
 		c.fail(name, "must not be negative")
 	}
