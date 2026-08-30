@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,32 +9,6 @@ import (
 	"testing"
 	"time"
 )
-
-func TestOptionsValidate(t *testing.T) {
-	tests := []struct {
-		name string
-		opts Options
-		want string
-	}{
-		{"launching is unconstrained", Options{Path: "/bin/chrome", Args: []string{"a"}, Headed: true}, ""},
-		{"connecting alone is fine", Options{CDPURL: "http://localhost:9222"}, ""},
-		{"a path conflicts", Options{CDPURL: "x", Path: "/bin/chrome"}, "--browser-path"},
-		{"an argument conflicts", Options{CDPURL: "x", Args: []string{"a"}}, "--browser-arg"},
-		{"headed conflicts", Options{CDPURL: "x", Headed: true}, "--interactive"},
-		{"devtools conflicts", Options{CDPURL: "x", DevTools: true}, "--devtools"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.opts.validate()
-			switch {
-			case tt.want == "" && err != nil:
-				t.Fatalf("unexpected error: %v", err)
-			case tt.want != "" && (err == nil || !strings.Contains(err.Error(), tt.want)):
-				t.Fatalf("error = %v, want it to mention %q", err, tt.want)
-			}
-		})
-	}
-}
 
 func TestSplitArg(t *testing.T) {
 	tests := []struct {
@@ -95,6 +70,20 @@ func TestDiscoverExplicitPath(t *testing.T) {
 		got, err := Discover("")
 		if err != nil || got != exe {
 			t.Fatalf("Discover(\"\") = %q, %v", got, err)
+		}
+	})
+	t.Run("a missing environment path falls through", func(t *testing.T) {
+		absent := filepath.Join(dir, "absent")
+		t.Setenv("SHOTS_BROWSER_PATH", absent)
+		got, err := Discover("")
+		// Whether the rest of the order finds a browser depends on the machine,
+		// so the only failure allowed here is "nothing anywhere".
+		var notFound *NotFoundError
+		if err != nil && !errors.As(err, &notFound) {
+			t.Fatalf("Discover(\"\") = %q, %v; want the variable to be skipped, not to fail", got, err)
+		}
+		if got == absent {
+			t.Fatal("a nonexistent browser was accepted")
 		}
 	})
 }

@@ -419,10 +419,40 @@ func TestShotRedirect(t *testing.T) {
 }
 
 func TestCDPURLIsExclusive(t *testing.T) {
-	got := run(t, "example.com", "--cdp-url", "http://localhost:9222", "--browser-arg=--foo")
-	if got.code != exitFailure || !strings.Contains(got.stderr, "--cdp-url cannot be combined") {
-		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"a browser argument conflicts", []string{"--browser-arg=--foo"}, "--browser-arg"},
+		{"a browser path conflicts", []string{"--browser-path", "/bin/chrome"}, "--browser-path"},
+		{"interactive conflicts", []string{"-i"}, "--interactive"},
+		{"devtools conflicts", []string{"--devtools"}, "--devtools"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append([]string{"example.com", "--cdp-url", "http://localhost:9222"}, tt.args...)
+			got := run(t, args...)
+			if got.code != exitUsage || !strings.Contains(got.stderr, "--cdp-url cannot be combined with "+tt.want) {
+				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitUsage, got.stderr)
+			}
+		})
+	}
+	t.Run("doctor rejects the same combination", func(t *testing.T) {
+		got := run(t, "doctor", "--cdp-url", "http://localhost:9222", "--browser-path", "/bin/chrome")
+		if got.code != exitUsage {
+			t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitUsage, got.stderr)
+		}
+	})
+	// The documented environment variable belongs to discovery, so it must not
+	// count as a --browser-path that conflicts with --cdp-url.
+	t.Run("the environment does not conflict", func(t *testing.T) {
+		t.Setenv("SHOTS_BROWSER_PATH", filepath.Join(t.TempDir(), "absent"))
+		got := run(t, "example.com", "--cdp-url", "http://127.0.0.1:1", "--timeout", "2000")
+		if got.code == exitUsage || strings.Contains(got.stderr, "cannot be combined") {
+			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		}
+	})
 }
 
 func TestDoctor(t *testing.T) {

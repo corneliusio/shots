@@ -12,7 +12,7 @@ import (
 )
 
 type doctorCmd struct {
-	BrowserPath string `placeholder:"PATH" env:"SHOTS_BROWSER_PATH" help:"Chrome executable to check."`
+	BrowserPath string `placeholder:"PATH" help:"Chrome executable to check, ahead of $SHOTS_BROWSER_PATH and discovery."`
 	CDPURL      string `name:"cdp-url" placeholder:"URL" help:"Check this running browser instead of launching one."`
 }
 
@@ -33,6 +33,9 @@ func (r *checks) problem(name string, err error) {
 }
 
 func (c *doctorCmd) Run(ctx context.Context, e *env) error {
+	if c.CDPURL != "" && c.BrowserPath != "" {
+		return usagef("--cdp-url cannot be combined with --browser-path")
+	}
 	r := &checks{w: e.stdout}
 	r.line("shots", "%s", Version)
 	r.line("platform", "%s/%s", runtime.GOOS, runtime.GOARCH)

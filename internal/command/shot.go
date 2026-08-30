@@ -56,8 +56,12 @@ type shotCmd struct {
 
 // browserFlags are the browser-selection options shared by every command that
 // drives a page.
+//
+// BrowserPath carries no env tag: $SHOTS_BROWSER_PATH is step 2 of
+// [browser.Discover]'s order, where a path that no longer exists falls through
+// to the next candidate instead of failing the run.
 type browserFlags struct {
-	BrowserPath   string   `placeholder:"PATH" env:"SHOTS_BROWSER_PATH" help:"Chrome executable to use."`
+	BrowserPath   string   `placeholder:"PATH" help:"Chrome executable to use, ahead of $SHOTS_BROWSER_PATH and discovery."`
 	CDPURL        string   `name:"cdp-url" placeholder:"URL" help:"Connect to a running browser instead of launching one."`
 	BrowserArg    []string `sep:"none" placeholder:"ARG" help:"Extra Chrome command-line argument; repeatable."`
 	UserAgent     string   `help:"Override the browser's user agent."`
@@ -65,6 +69,21 @@ type browserFlags struct {
 	BypassCSP     bool     `name:"bypass-csp" help:"Ignore the page's Content-Security-Policy."`
 	AuthUsername  string   `help:"Username for HTTP basic authentication."`
 	AuthPassword  string   `help:"Password for HTTP basic authentication."`
+}
+
+// validate rejects launch options combined with --cdp-url: connecting to a
+// browser somebody else started cannot change how it was started. Commands with
+// launch flags of their own check those too.
+func (f browserFlags) validate() error {
+	switch {
+	case f.CDPURL == "":
+		return nil
+	case f.BrowserPath != "":
+		return usagef("--cdp-url cannot be combined with --browser-path")
+	case len(f.BrowserArg) > 0:
+		return usagef("--cdp-url cannot be combined with --browser-arg")
+	}
+	return nil
 }
 
 func (c *shotCmd) Run(ctx context.Context, e *env) error {
@@ -178,7 +197,14 @@ func (c *shotCmd) Run(ctx context.Context, e *env) error {
 }
 
 func (c *shotCmd) validate() error {
+	if err := c.browserFlags.validate(); err != nil {
+		return err
+	}
 	switch {
+	case c.CDPURL != "" && c.Interactive:
+		return usagef("--cdp-url cannot be combined with --interactive")
+	case c.CDPURL != "" && c.DevTools:
+		return usagef("--cdp-url cannot be combined with --devtools")
 	case c.Skip && c.Fail:
 		return usagef("--skip and --fail cannot be used together")
 	case c.Retina && c.ScaleFactor != 0:

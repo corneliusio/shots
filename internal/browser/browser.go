@@ -23,8 +23,9 @@ const DefaultTimeout = 30 * time.Second
 
 // Options configures [Connect].
 //
-// CDPURL is mutually exclusive with every launch option: connecting to a
-// browser somebody else started cannot change how it was started.
+// Setting CDPURL means connecting to a browser somebody else started, which
+// cannot change how it was started, so every launch option is then ignored. The
+// command layer rejects the combination as a usage error.
 type Options struct {
 	// Path is an explicit browser executable. Empty means [Discover].
 	Path string
@@ -40,26 +41,6 @@ type Options struct {
 	// Timeout bounds navigation and script execution. Zero means
 	// [DefaultTimeout].
 	Timeout time.Duration
-}
-
-func (o Options) validate() error {
-	if o.CDPURL == "" {
-		return nil
-	}
-	for _, conflict := range []struct {
-		name string
-		set  bool
-	}{
-		{"--browser-path", o.Path != ""},
-		{"--browser-arg", len(o.Args) > 0},
-		{"--interactive", o.Headed},
-		{"--devtools", o.DevTools},
-	} {
-		if conflict.set {
-			return fmt.Errorf("--cdp-url cannot be combined with %s", conflict.name)
-		}
-	}
-	return nil
 }
 
 // Browser is a Chrome process, or a connection to one somebody else started.
@@ -81,9 +62,6 @@ type Browser struct {
 // Connect launches Chrome, or connects to the browser named by
 // [Options].CDPURL. The caller must call [Browser.Close].
 func Connect(ctx context.Context, opts Options) (*Browser, error) {
-	if err := opts.validate(); err != nil {
-		return nil, err
-	}
 	b := &Browser{timeout: opts.Timeout, launched: opts.CDPURL == ""}
 	if b.timeout <= 0 {
 		b.timeout = DefaultTimeout
@@ -157,10 +135,6 @@ func (b *Browser) Close() {
 		b.alloc()
 	}
 }
-
-// Path is the executable Chrome was launched from, or "" when shots connected
-// to an existing browser.
-func (b *Browser) Path() string { return b.path }
 
 // Version reports the browser's product string, such as "Chrome/152.0.7977.65".
 func (b *Browser) Version(ctx context.Context) (string, error) {
