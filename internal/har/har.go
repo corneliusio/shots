@@ -134,6 +134,9 @@ type Recorder struct {
 	entries []*Entry
 	// open holds the entry each in-flight request id is still writing to.
 	open map[string]*Entry
+	// closed is set once [Recorder.Log] has handed the entries out. Later
+	// events are dropped rather than written to entries the caller is reading.
+	closed bool
 }
 
 // NewRecorder returns a recorder that records shots' own version as the
@@ -156,6 +159,9 @@ func (r *Recorder) Sent(id string, at time.Time, req Request) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
 	r.entries = append(r.entries, entry)
 	r.open[id] = entry
 }
@@ -225,14 +231,20 @@ func (r *Recorder) Failed(id string, at time.Time, text string) {
 	delete(r.open, id)
 }
 
-// Log returns the log recorded so far.
+// Log returns the log recorded so far and stops the recorder: a browser keeps
+// reporting events while the caller encodes the entries, and those entries are
+// the recorder's own. Dropping later events is what makes handing them out
+// safe. Log may be called again — it reports the same entries.
 //
 // Requests still in flight are closed at the moment the log is taken: a page
 // routinely leaves a response whose body nobody read hanging, and an entry
-// without a duration is not a valid HAR entry.
+// without a duration is not a valid HAR entry. Emptying open is also what stops
+// [Recorder.Received] and the closing methods, which only ever touch an entry
+// they find there.
 func (r *Recorder) Log() Log {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.closed = true
 	now := time.Now()
 	for id, entry := range r.open {
 		closeEntry(entry, now)

@@ -106,6 +106,52 @@ func TestEntryTimeIsTheSumOfItsTimings(t *testing.T) {
 	}
 }
 
+// A browser keeps reporting events while the log it handed out is written, so
+// the entries a caller holds must stop changing once it has them.
+func TestLogStopsTheRecorder(t *testing.T) {
+	start := time.Unix(1700000000, 0).UTC()
+	r := NewRecorder("test")
+	r.Sent("1", start, Request{Method: "GET", URL: "http://example.com/"})
+	log := r.Log()
+	entry := log.Entries[0]
+	elapsed, status := entry.Time, entry.Response.Status
+
+	r.Sent("2", start, Request{Method: "GET", URL: "http://example.com/late"})
+	r.Received("1", Response{Status: 500}, timings())
+	r.Finished("1", start.Add(time.Hour), 1, []byte("late"))
+	r.Failed("1", start, "late")
+
+	if entry.Time != elapsed || entry.Response.Status != status || entry.Response.Content.Text != "" || entry.FailureText != "" {
+		t.Errorf("entry changed after the log was taken: %+v", entry)
+	}
+	// The har -x path takes the log twice; the second call reports the same
+	// entries, and not the one a late Sent would have opened.
+	if again := r.Log(); len(again.Entries) != 1 || again.Entries[0] != entry {
+		t.Errorf("second log = %d entries, want the first one's", len(again.Entries))
+	}
+}
+
+// The race detector proves the point the previous test states.
+func TestLogIsSafeWhileEventsArrive(t *testing.T) {
+	start := time.Now()
+	r := NewRecorder("test")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 200 {
+			id := string(rune('a' + i%8))
+			r.Sent(id, start, Request{Method: "GET", URL: "http://example.com/"})
+			r.Received(id, Response{Status: 200}, timings())
+			r.Finished(id, start, 1, []byte("body"))
+		}
+	}()
+	log := r.Log()
+	for _, entry := range log.Entries {
+		_ = entry.Response.Content.Text
+	}
+	<-done
+}
+
 func TestQueryString(t *testing.T) {
 	tests := []struct {
 		name string
