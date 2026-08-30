@@ -483,3 +483,17 @@ asked for it, after the artifact it belongs to, which keeps PLAN.md Section
 10's rule that a failed command leaves no files behind. A run that ends early
 therefore leaves the previous HAR — if any — untouched instead of replacing it
 with a partial one.
+
+**Taking a recorder's log stops it.** `Recorder.Log` hands out the recorder's
+own `*Entry` values, and the page keeps reporting events while the caller
+encodes them: `FlushHAR` only waits for the body fetches it started, and Chrome
+delivers later events on the connection's read goroutine. Rather than deep-copy
+every entry, `Log` sets a `closed` flag that drops a later `Sent`, and the
+closing methods already act only on an entry they find in `open`, which `Log`
+empties. `Log` stays repeatable, which the `har -x` path needs.
+
+**A HAR command resolves zip once, from the flag or the extension.** `har`
+decided plain-versus-zipped from the output filename alone, so `-z -o out.har`
+wrote an uncompressed file while `--har-zip` on `shot` honoured the flag.
+`harCmd.output` now returns the destination and whether it is zipped, the way
+`harFlags.path` already did, and the two entry points agree.
