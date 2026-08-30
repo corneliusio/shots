@@ -370,3 +370,108 @@ screenshots, whose automatic filenames make an accidental overwrite plausible.
 The new commands write to standard output by default, and `pdf` picks a
 collision-free automatic name, so there is nothing to protect that the user did
 not name explicitly.
+
+## Stage 4 — `har`, `auth` and state restore
+
+**`browser` imports `har`, not the other way round.** The recorder needs values
+a CDP event carries, and PLAN.md Section 4 forbids CDP types in command
+handlers. Defining a second, neutral event vocabulary in `har` and translating
+CDP into it inside `browser` would have meant two shapes for the same data, so
+`har` owns the HAR 1.2 model and the correlation, and `browser` converts CDP
+events straight into `har.Request`, `har.Response` and `har.Timings`. The
+DevTools Protocol still stops at the package boundary, and the archive format
+is testable without a browser.
+
+**Bodies are fetched eagerly, and the flush waits for them.**
+`Network.getResponseBody` only answers while the body is still in Chrome's
+buffer, so `loadingFinished` starts the fetch immediately, on a goroutine
+(the listener runs on the connection's read goroutine and would deadlock).
+`Network.enable` raises `maxTotalBufferSize` to 200MB and
+`maxResourceBufferSize` to 50MB when a HAR is being recorded, and `FlushHAR`
+waits for the fetches in flight. Redirect responses, some cached responses and
+bodies Chrome has already evicted have none; those entries keep their status,
+headers and sizes, and no `content.text`.
+
+**An entry's `receive` is the remainder, and `blocked` is never observed.**
+Chrome's `ResourceTiming` measures up to the last response header; the phases
+before it map directly (`dns`, `connect`, `ssl`, `send`, `wait`), and what is
+left of the elapsed time is the body, which is exactly what `receive` means.
+`time` is then the sum of the non-negative timings, as the specification
+requires. `blocked` has no CDP equivalent that is worth guessing at, so it
+stays -1.
+
+**Requests still in flight are closed when the log is taken.** A page that
+calls `fetch()` and never reads the response body leaves the request open for
+as long as it likes, and an entry with no duration is not a valid HAR entry.
+`Recorder.Log` closes whatever is open at that moment, which is also what makes
+the call idempotent.
+
+**HAR cookie arrays stay empty, and `pages` is not written.** Both are optional
+in HAR 1.2. The `Cookie` and `Set-Cookie` headers are already in `headers`, so
+parsing them into a second representation would add code and duplicate
+credentials rather than information; a `pages` array would need a page timeline
+`shots` does not model. Every required array is written as `[]`, never `null`.
+
+**A `.har.zip` holds one `har.har` member with the bodies inline.** Playwright
+stores each body as a separate zip member and points at it with a `_file`
+reference; shots' archive is the same bytes the plain `.har` would have, just
+compressed. Upstream's extractor reads `content.text` as well as `_file`, so
+its archives stay readable there, and shots' own extractor has one code path
+instead of two. Nothing in shots writes or reads `_file`, so nothing implements
+it.
+
+**Extracted names are checked even though they cannot escape.**
+`artifact.Stem` already folds a URL to `[A-Za-z0-9_-]`, so a `..` or a `/` in a
+request path cannot survive into a filename. `safeName` rejects one anyway,
+before the name is joined to the extraction directory: PLAN.md Section 11 asks
+for the guard, the name comes from a URL the page chose, and a future change to
+the naming rule should fail the test rather than write outside the directory.
+
+**Resource naming drops upstream's second content-type table.**
+`filename_for_har_entry` compares the URL's extension against a table mapping
+extensions back to a single canonical content type, so a `.js` file served as
+`text/javascript` (rather than `application/javascript`) is named
+`site-app-js.js`. shots compares the extensions themselves, giving
+`site-app.js`, and keeps upstream's behaviour everywhere else: a mismatched
+extension stays in the stem, an unknown type falls back to the URL's extension,
+and neither leaves `.bin`.
+
+**Authentication state is `browser.State`, in Playwright's `storage_state`
+shape.** Cookies come from `Storage.getCookies` for the page's browser context;
+local storage comes from `DOMStorage.getDOMStorageItems` for every origin the
+page has a frame for, which reads a cross-origin iframe's storage without
+evaluating anything in it. `sameSite` is omitted when Chrome reports none —
+Playwright's own type makes it optional — and a session cookie keeps
+Playwright's `-1` expiry, which restores as no expiry at all. A round-trip
+against a `storage_state` fixture is byte-for-byte, so a state file loses
+nothing passing through shots.
+
+**Local storage restores through an intercepted blank page per origin.**
+PLAN.md Section 6 prescribes the page per origin; the request that page makes
+is answered with `Fetch.fulfillRequest` instead of being fetched, so restoring
+a state file never touches the network and works for an origin that is offline.
+The pages are opened in the browser context the command will use, and closed
+before it navigates. Values are passed to the page as a JSON literal, never
+spliced into source, and never logged.
+
+**`-a/--auth` takes a path, not `-`.** Upstream's is a Click file argument, so
+`-a -` reads the state from standard input — the same stream `--js-file -` and
+the `--interactive` prompt read. `shots auth` still writes to `-`.
+
+**`shots auth` reports nothing but the prompt.** Upstream prints no progress
+line, and adding one would have meant a `--silent` flag upstream does not have
+on this command. The file's mode is 0600, and neither the prompt nor any error
+carries a cookie, a storage value or a password.
+
+**The auth tests run the sign-in browser headless with `--browser-arg
+headless=new`.** `shots auth` is headed by definition, which no CI runner can
+do. A later `--browser-arg` overrides the flag shots sets, so the tests drive
+the real command — prompt, export, permissions and all — without a display.
+
+**A skipped or failed page writes no HAR.** Upstream records the archive
+through Playwright's browser context, so it lands even when `--skip` stopped
+the run before the screenshot. In shots the HAR is written by the command that
+asked for it, after the artifact it belongs to, which keeps PLAN.md Section
+10's rule that a failed command leaves no files behind. A run that ends early
+therefore leaves the previous HAR — if any — untouched instead of replacing it
+with a partial one.
