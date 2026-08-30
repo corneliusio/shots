@@ -45,31 +45,54 @@ func (f browserFlags) validate() error {
 	return nil
 }
 
-// pageFlags are the options every command that loads a page accepts. The
-// lifecycle they drive is [pageFlags.open].
-type pageFlags struct {
+// sessionFlags are the options that apply to a whole run rather than to one
+// page: which browser to drive, which authentication state to restore, how long
+// to wait, and what to report. Every browser command has them, including multi,
+// where one set of them covers every entry.
+type sessionFlags struct {
 	Auth string `short:"a" placeholder:"FILE" help:"Restore cookies and local storage from this authentication state file."`
 
+	Timeout int `help:"Navigation and script timeout in milliseconds."`
+
+	Skip bool `help:"Exit successfully without output when the page returns 4xx or 5xx."`
+	Fail bool `help:"Fail when the page returns 4xx or 5xx."`
+
+	LogConsole bool `help:"Write console messages to standard error."`
+	Silent     bool `help:"Do not report progress."`
+
+	browserFlags
+}
+
+func (f sessionFlags) validate() error {
+	if err := f.browserFlags.validate(); err != nil {
+		return err
+	}
+	switch {
+	case f.Skip && f.Fail:
+		return usagef("--skip and --fail cannot be used together")
+	case f.Timeout < 0:
+		return usagef("--timeout must not be negative")
+	}
+	return nil
+}
+
+// pageFlags are the options a command that loads one page of its own accepts.
+// The lifecycle they drive is [pageFlags.open].
+type pageFlags struct {
 	JavaScript string `short:"j" name:"javascript" placeholder:"CODE" help:"JavaScript to run on the page."`
 	JSFile     string `name:"js-file" placeholder:"FILE" help:"Read the JavaScript from this file, - for standard input, or gh:user/script.js."`
 
 	Wait    int    `help:"Milliseconds to wait after loading."`
 	WaitFor string `placeholder:"EXPR" help:"Wait until this JavaScript expression is true."`
-	Timeout int    `help:"Navigation and script timeout in milliseconds."`
-
-	Skip bool `help:"Exit successfully without output when the page returns 4xx or 5xx."`
-	Fail bool `help:"Fail when the page returns 4xx or 5xx."`
 
 	Interactive bool `short:"i" help:"Show the browser and wait for Enter before producing output."`
 	DevTools    bool `name:"devtools" help:"Show the browser with developer tools open, and wait for Enter."`
-	LogConsole  bool `help:"Write console messages to standard error."`
-	Silent      bool `help:"Do not report progress."`
 
-	browserFlags
+	sessionFlags
 }
 
 func (f pageFlags) validate() error {
-	if err := f.browserFlags.validate(); err != nil {
+	if err := f.sessionFlags.validate(); err != nil {
 		return err
 	}
 	switch {
@@ -77,8 +100,6 @@ func (f pageFlags) validate() error {
 		return usagef("--cdp-url cannot be combined with --interactive")
 	case f.CDPURL != "" && f.DevTools:
 		return usagef("--cdp-url cannot be combined with --devtools")
-	case f.Skip && f.Fail:
-		return usagef("--skip and --fail cannot be used together")
 	case f.JavaScript != "" && f.JSFile != "":
 		return usagef("--javascript and --js-file cannot be used together")
 	case f.JSFile == "-" && (f.Interactive || f.DevTools):
@@ -86,36 +107,24 @@ func (f pageFlags) validate() error {
 		return usagef("--js-file - cannot be combined with --interactive or --devtools")
 	case f.Wait < 0:
 		return usagef("--wait must not be negative")
-	case f.Timeout < 0:
-		return usagef("--timeout must not be negative")
 	}
 	return nil
 }
 
-// open runs steps 3 to 9 of the lifecycle in PLAN.md Section 6: connect to
-// Chrome, open a page in a fresh browser context, navigate, apply --skip and
-// --fail, then wait and run script.
-//
-// The caller fills the viewport and any logging it owns in opts; the options
-// every page command shares are filled here. On failure — including the
-// [errSkipped] that --skip reports — everything opened is closed again; on
-// success the caller must call the returned function.
-func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts browser.PageOptions) (*browser.Page, func(), error) {
-	state, err := loadState(f.Auth)
-	if err != nil {
-		return nil, nil, err
+// browserOptions are the launch options a session shares. The caller adds
+// whether the browser is headed, which is a per-command decision.
+func (f sessionFlags) browserOptions() browser.Options {
+	return browser.Options{
+		Path:    f.BrowserPath,
+		CDPURL:  f.CDPURL,
+		Args:    f.BrowserArg,
+		Timeout: time.Duration(f.Timeout) * time.Millisecond,
 	}
-	b, err := browser.Connect(ctx, browser.Options{
-		Path:     f.BrowserPath,
-		CDPURL:   f.CDPURL,
-		Args:     f.BrowserArg,
-		Headed:   f.Interactive || f.DevTools,
-		DevTools: f.DevTools,
-		Timeout:  time.Duration(f.Timeout) * time.Millisecond,
-	})
-	if err != nil {
-		return nil, nil, err
-	}
+}
+
+// newPage opens a page carrying the options every page of a session shares. The
+// caller fills the viewport and any logging it owns in opts.
+func (f sessionFlags) newPage(ctx context.Context, e *env, b *browser.Browser, state *browser.State, opts browser.PageOptions) (*browser.Page, error) {
 	opts.State = state
 	opts.UserAgent = f.UserAgent
 	opts.ReducedMotion = f.ReducedMotion
@@ -124,7 +133,41 @@ func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts
 	if f.LogConsole {
 		opts.OnConsole = func(m browser.Message) { fmt.Fprintf(e.stderr, "%s: %s\n", m.Type, m.Text) }
 	}
-	page, err := b.NewPage(ctx, opts)
+	return b.NewPage(ctx, opts)
+}
+
+// check applies the --skip and --fail policy to a navigation's status.
+func (f sessionFlags) check(e *env, status int, target string) error {
+	switch {
+	case status < 400:
+	case f.Skip:
+		fmt.Fprintf(e.stderr, "%d error for %s, skipping\n", status, target)
+		return errSkipped
+	case f.Fail:
+		return fmt.Errorf("%d error for %s", status, target)
+	}
+	return nil
+}
+
+// open runs steps 3 to 9 of the lifecycle in PLAN.md Section 6: connect to
+// Chrome, open a page in a fresh browser context, navigate, apply --skip and
+// --fail, then wait and run script.
+//
+// On failure — including the [errSkipped] that --skip reports — everything
+// opened is closed again; on success the caller must call the returned
+// function.
+func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts browser.PageOptions) (*browser.Page, func(), error) {
+	state, err := loadState(f.Auth)
+	if err != nil {
+		return nil, nil, err
+	}
+	launch := f.browserOptions()
+	launch.Headed, launch.DevTools = f.Interactive || f.DevTools, f.DevTools
+	b, err := browser.Connect(ctx, launch)
+	if err != nil {
+		return nil, nil, err
+	}
+	page, err := f.newPage(ctx, e, b, state, opts)
 	if err != nil {
 		b.Close()
 		return nil, nil, err
@@ -145,33 +188,33 @@ func (f pageFlags) load(ctx context.Context, e *env, page *browser.Page, target,
 	if err != nil {
 		return err
 	}
-	switch {
-	case status < 400:
-	case f.Skip:
-		fmt.Fprintf(e.stderr, "%d error for %s, skipping\n", status, target)
-		return errSkipped
-	case f.Fail:
-		return fmt.Errorf("%d error for %s", status, target)
+	if err := f.check(e, status, target); err != nil {
+		return err
 	}
-
 	if f.Interactive || f.DevTools {
 		fmt.Fprintln(e.stderr, "Hit <enter> to continue and close the browser window:")
 		if err := waitForEnter(ctx, e.stdin); err != nil {
 			return err
 		}
 	}
-	if err := page.Wait(ctx, time.Duration(f.Wait)*time.Millisecond); err != nil {
+	return prepare(ctx, page, time.Duration(f.Wait)*time.Millisecond, script, f.WaitFor)
+}
+
+// prepare runs the steps between a navigation and the artifact: a fixed wait,
+// the page's script, then a condition to wait for.
+func prepare(ctx context.Context, page *browser.Page, wait time.Duration, script, waitFor string) error {
+	if err := page.Wait(ctx, wait); err != nil {
 		return err
 	}
 	if err := page.Exec(ctx, script); err != nil {
 		return err
 	}
-	return page.WaitFor(ctx, f.WaitFor)
+	return page.WaitFor(ctx, waitFor)
 }
 
 // emit writes an artifact and, unless it went to standard output, reports where
 // it went. --silent suppresses the report, never the artifact.
-func (f pageFlags) emit(e *env, kind, target, output string, r io.Reader, opts artifact.Options) error {
+func (f sessionFlags) emit(e *env, kind, target, output string, r io.Reader, opts artifact.Options) error {
 	opts.Stdout = e.stdout
 	if err := artifact.WriteStream(output, r, opts); err != nil {
 		return err

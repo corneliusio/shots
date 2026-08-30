@@ -47,6 +47,7 @@ collides with one as "shots shot html" or "shots ./html".`
 // cli is the whole command surface.
 type cli struct {
 	Shot          shotCmd          `cmd:"" help:"Take a screenshot of a page or part of one."`
+	Multi         multiCmd         `cmd:"" help:"Run the shots, shell steps and servers of a YAML configuration."`
 	JavaScript    javascriptCmd    `cmd:"" name:"javascript" help:"Run JavaScript on a page and print the result."`
 	HTML          htmlCmd          `cmd:"" name:"html" help:"Print the rendered HTML of a page or an element."`
 	PDF           pdfCmd           `cmd:"" name:"pdf" help:"Print a page to PDF."`

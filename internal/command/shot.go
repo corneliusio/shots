@@ -13,6 +13,13 @@ import (
 	"github.com/mostlyserious/shots/internal/har"
 )
 
+// defaultWidth and defaultHeight are the viewport a shot gets when it names
+// neither. They repeat --width's kong default, which has to be a literal.
+const (
+	defaultWidth  = 1280
+	defaultHeight = 720
+)
+
 type shotCmd struct {
 	URL string `arg:"" help:"URL, bare domain, or path to a local HTML file."`
 
@@ -28,15 +35,38 @@ type shotCmd struct {
 	JSSelectorAll []string `name:"js-selector-all" sep:"none" placeholder:"EXPR" help:"Capture every element for which this JavaScript expression over 'el' is true; repeatable."`
 	Padding       int      `short:"p" help:"Pixels of padding around the selected region."`
 
-	Retina         bool    `help:"Use a device scale factor of 2."`
-	ScaleFactor    float64 `placeholder:"N" help:"Device scale factor."`
-	Quality        int     `help:"JPEG quality, 1 to 100. Implies JPEG output."`
-	OmitBackground bool    `help:"Leave the page background transparent."`
+	Quality        int  `help:"JPEG quality, 1 to 100. Implies JPEG output."`
+	OmitBackground bool `help:"Leave the page background transparent."`
 
 	LogRequests string `placeholder:"FILE" help:"Write one JSON object per network request to this file, or - for standard output."`
 
+	scaleFlags
 	harFlags
 	pageFlags
+}
+
+// scaleFlags are the device-scale options shot and multi share.
+type scaleFlags struct {
+	Retina      bool    `help:"Use a device scale factor of 2."`
+	ScaleFactor float64 `placeholder:"N" help:"Device scale factor."`
+}
+
+func (f scaleFlags) validate() error {
+	switch {
+	case f.Retina && f.ScaleFactor != 0:
+		return usagef("--retina and --scale-factor cannot be used together")
+	case f.ScaleFactor < 0:
+		return usagef("--scale-factor must be positive")
+	}
+	return nil
+}
+
+// factor is the device scale factor to use. Zero leaves Chrome's own.
+func (f scaleFlags) factor() float64 {
+	if f.Retina {
+		return 2
+	}
+	return f.ScaleFactor
 }
 
 func (c *shotCmd) Run(ctx context.Context, e *env) error {
@@ -79,7 +109,7 @@ func (c *shotCmd) Run(ctx context.Context, e *env) error {
 	page, closer, err := c.open(ctx, e, target, script, browser.PageOptions{
 		Width:       c.Width,
 		Height:      c.viewportHeight(),
-		ScaleFactor: c.scaleFactor(),
+		ScaleFactor: c.factor(),
 		OnRequest:   requests,
 		HAR:         recorder,
 	})
@@ -112,18 +142,18 @@ func (c *shotCmd) Run(ctx context.Context, e *env) error {
 	if recorder == nil {
 		return nil
 	}
-	return c.writeHAR(e, page, recorder, harPath, harZip)
+	page.FlushHAR()
+	return c.writeHAR(e, recorder, harPath, harZip)
 }
 
 func (c *shotCmd) validate() error {
 	if err := c.pageFlags.validate(); err != nil {
 		return err
 	}
+	if err := c.scaleFlags.validate(); err != nil {
+		return err
+	}
 	switch {
-	case c.Retina && c.ScaleFactor != 0:
-		return usagef("--retina and --scale-factor cannot be used together")
-	case c.ScaleFactor < 0:
-		return usagef("--scale-factor must be positive")
 	case c.Width <= 0:
 		return usagef("--width must be positive")
 	case c.Height < 0:
@@ -146,13 +176,6 @@ func (c *shotCmd) selectors() browser.Selectors {
 	}
 }
 
-func (c *shotCmd) scaleFactor() float64 {
-	if c.Retina {
-		return 2
-	}
-	return c.ScaleFactor
-}
-
 // viewportHeight is the height the viewport is set to. Upstream always sets a
 // viewport, defaulting the height to 720 when only a width is given, and
 // captures the full page when --height is absent.
@@ -160,7 +183,7 @@ func (c *shotCmd) viewportHeight() int {
 	if c.Height > 0 {
 		return c.Height
 	}
-	return 720
+	return defaultHeight
 }
 
 // requestLog opens the --log-requests destination and returns a callback that

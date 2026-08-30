@@ -44,7 +44,8 @@ func (c *harCmd) Run(ctx context.Context, e *env) error {
 	}
 	defer closer()
 
-	if err := c.writeHAR(e, page, recorder, output, zip); err != nil {
+	page.FlushHAR()
+	if err := c.writeHAR(e, recorder, output, zip); err != nil {
 		return err
 	}
 	if !c.Extract {
@@ -114,9 +115,9 @@ func (f harFlags) path() (string, bool, error) {
 	return path, zip, err
 }
 
-// writeHAR waits for the response bodies still in flight and writes the log.
-func (f pageFlags) writeHAR(e *env, page *browser.Page, recorder *har.Recorder, path string, zip bool) error {
-	page.FlushHAR()
+// writeHAR writes a recorded log. Every page it recorded must have been flushed
+// first, so that the bodies still in flight are in it.
+func (f sessionFlags) writeHAR(e *env, recorder *har.Recorder, path string, zip bool) error {
 	write := har.Write
 	if zip {
 		write = har.WriteZip

@@ -75,6 +75,16 @@ func ParseMulti(data []byte, baseDir string) (*Multi, error) {
 	return m, nil
 }
 
+// Resolve resolves a path given outside the configuration — an --output filter
+// naming an entry's output — the way the configuration's own paths resolve, so
+// that both spell the same file the same way.
+func (m *Multi) Resolve(path string) string {
+	if path == "-" { // standard output, not a path
+		return path
+	}
+	return against(m.BaseDir, path)
+}
+
 func decodeEntry(n *yaml.Node, path, baseDir string) (Entry, error) {
 	var e Entry
 	lines, err := decodeStruct(n, path, &e)

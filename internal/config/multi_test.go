@@ -492,6 +492,25 @@ func TestLoadMulti(t *testing.T) {
 	}
 }
 
+// An --output filter has to spell an entry's output the way the entry does, so
+// it resolves the same way.
+func TestResolveMatchesEntryOutputs(t *testing.T) {
+	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: shots/a.png\n"), "/tmp/project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := m.Resolve("shots/a.png"), m.Entries[0].Output; got != want {
+		t.Errorf("Resolve = %q, want %q", got, want)
+	}
+	if got := m.Resolve("-"); got != "-" {
+		t.Errorf("Resolve(-) = %q, want -", got)
+	}
+	empty := &config.Multi{}
+	if got := empty.Resolve("a.png"); got != "a.png" {
+		t.Errorf("Resolve without a base directory = %q, want it left alone", got)
+	}
+}
+
 func TestLoadMultiMissingFile(t *testing.T) {
 	if _, err := config.LoadMulti(filepath.Join(t.TempDir(), "nope.yml")); err == nil {
 		t.Fatal("expected an error")
