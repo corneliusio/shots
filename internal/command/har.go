@@ -28,7 +28,7 @@ func (c *harCmd) Run(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	output, err := c.output(target)
+	output, zip, err := c.output(target)
 	if err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (c *harCmd) Run(ctx context.Context, e *env) error {
 	}
 	defer closer()
 
-	if err := c.writeHAR(e, page, recorder, output, isZipPath(output)); err != nil {
+	if err := c.writeHAR(e, page, recorder, output, zip); err != nil {
 		return err
 	}
 	if !c.Extract {
@@ -69,19 +69,22 @@ func (c *harCmd) validate() error {
 	return nil
 }
 
-// output resolves the destination. An automatic name is derived from the URL;
-// an explicit one is used as given, except that --extract treats a name
-// without a HAR extension as the base path both the file and the directory are
-// built from, as upstream does.
-func (c *harCmd) output(target string) (string, error) {
+// output resolves the destination and whether it is zipped. An automatic name
+// is derived from the URL; an explicit one is used as given, except that
+// --extract treats a name without a HAR extension as the base path both the
+// file and the directory are built from, as upstream does. A .zip suffix zips
+// the file too, so naming one is enough.
+func (c *harCmd) output(target string) (string, bool, error) {
+	zip := c.Zip || isZipPath(c.Output)
 	ext := "har"
-	if c.Zip {
+	if zip {
 		ext = "har.zip"
 	}
 	if c.Extract && c.Output != "" && !strings.HasSuffix(c.Output, ".har") && !isZipPath(c.Output) {
-		return c.Output + "." + ext, nil
+		return c.Output + "." + ext, zip, nil
 	}
-	return artifact.Path(c.Output, target, ext)
+	path, err := artifact.Path(c.Output, target, ext)
+	return path, zip, err
 }
 
 // harFlags record a HAR file alongside a command's own output. Upstream has

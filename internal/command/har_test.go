@@ -197,18 +197,33 @@ func TestHARRecordsTestsiteTraffic(t *testing.T) {
 
 func TestHARZip(t *testing.T) {
 	srv := site(t)
-	output := filepath.Join(t.TempDir(), "trace.har.zip")
-	got := run(t, "har", srv.URL+"/", "-z", "-o", output)
-	if got.code != exitOK {
-		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+	// Either the flag or the extension zips the file, and asking for both is
+	// not an error.
+	tests := []struct {
+		name string
+		file string
+		args []string
+	}{
+		{name: "flag", file: "out.har", args: []string{"-z"}},
+		{name: "extension", file: "trace.har.zip"},
+		{name: "both", file: "trace.har.zip", args: []string{"-z"}},
 	}
-	archive, err := zip.OpenReader(output)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer archive.Close()
-	if len(archive.File) != 1 || archive.File[0].Name != "har.har" {
-		t.Fatalf("archive holds %d members, want one har.har", len(archive.File))
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output := filepath.Join(t.TempDir(), test.file)
+			got := run(t, append([]string{"har", srv.URL + "/", "-o", output}, test.args...)...)
+			if got.code != exitOK {
+				t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+			}
+			archive, err := zip.OpenReader(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer archive.Close()
+			if len(archive.File) != 1 || archive.File[0].Name != "har.har" {
+				t.Fatalf("archive holds %d members, want one har.har", len(archive.File))
+			}
+		})
 	}
 }
 
