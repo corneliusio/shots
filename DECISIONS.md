@@ -592,13 +592,22 @@ leaves such a process running; a batch tool that quietly accumulates orphans is
 the worse behaviour, and `server:` is how a configuration says "keep this
 running".
 
-**`--leave-server` needs an explicit detach, not just a skipped `Stop`.** On
-Unix a process group outlives the process that made it, so leaving a server
-alone is enough; on Windows the job object carries `KILL_ON_JOB_CLOSE`, and the
-handle is closed by the OS when shots exits whether or not shots closes it, so
-skipping `Stop` would still take the server down. `Server.Detach` clears the
-job's limit flags before releasing the handle, and is a no-op on Unix. It is
-compiled and vetted for Windows here but exercised only by CI's Windows runner.
+**`--leave-server` decides where the server writes, and detaches it.** Not
+signalling the group is not enough on either platform. On Windows the job object
+carries `KILL_ON_JOB_CLOSE`, and the handle is closed by the OS when shots
+exits, so `Server.Detach` clears the job's limit flags before releasing the
+handle; on Unix the group does outlive shots, but the *output* does not. Every
+managed child writes to a pipe shots owns (see below), whose read end closes at
+exit, so the first line a left-behind server logs kills it with `SIGPIPE` —
+which is every server worth leaving: `npm run dev`, `python -m http.server`,
+anything with a request log. A server started under `--leave-server` therefore
+gets shots' own standard error *file* as its output, which os/exec hands to the
+child as a descriptor of its own; `process.Cmd.Output` treats any `*os.File`
+that way, and everything else as a writer to copy through a pipe. `Detach` is
+still a no-op on Unix. The Windows half is compiled and vetted here but
+exercised only by CI's Windows runner, and the Unix half is covered by a
+subprocess test whose server logs every request and is asked for two pages after
+shots has exited.
 
 **Windows terminates the job outright; there is no graceful phase there.**
 PLAN.md Section 9 anticipates this: console processes have no SIGTERM
@@ -626,4 +635,28 @@ its own would test the copy, so `go build` runs once per package test run and
 the tests drive the built binary. In the other direction, the processes a
 configuration starts are the test binary itself in a `-child` mode — print,
 write, exit, serve — which keeps the fixtures free of shell scripts and of
-anything that has to exist on the machine.
+anything that has to exist on the machine. Anything about what survives shots'
+exit has to be a subprocess test: in-process, the pipe a child inherited stays
+open for as long as the test binary does, so the bug the test is looking for
+cannot happen.
+
+**A multi run is one browser context, not one per entry.** `batch` creates the
+context with the browser, on the first entry that needs a page, and opens a
+fresh page in it per shot — PLAN.md Section 7's "one Chrome process, a fresh
+page for each screenshot", and upstream's shape, where one context spans the run
+and `new_page()` is called per shot. It matters twice: a configuration that
+signs in or writes `localStorage` in one entry and captures the result in the
+next works, as it does upstream; and `--auth` is restored once per run rather
+than once per entry, which had been opening and closing a blank page for every
+origin in the state file before every single shot. `browser.Context` is the
+addition that makes it sayable — `Browser.NewContext` creates the context and
+restores state into it, `Context.NewPage` opens a page in it, `Page.Close` now
+closes only the page — and the single-page commands say the same three steps in
+`pageFlags.open`.
+
+**`doctor` asks `process.Python()` rather than repeating the order.** The report
+used its own copy of PLAN.md Section 9's `$SHOTS_PYTHON` → `python3` → `python`
+rule, and the copies had already drifted: with `$SHOTS_PYTHON` pointing at a
+moved interpreter, `doctor` printed "python: not found" while `multi` ran
+`python3` happily. One resolver, asked by both, is what makes the diagnostic
+worth reading. `checkTool` stays for `ffmpeg`, which has no resolution order.
