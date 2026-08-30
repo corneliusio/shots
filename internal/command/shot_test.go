@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/mostlyserious/shots/internal/process"
 	"github.com/mostlyserious/shots/internal/testsite"
 )
 
@@ -492,6 +493,21 @@ func TestDoctor(t *testing.T) {
 			t.Errorf("stdout is missing %q:\n%s", want, got.stdout)
 		}
 	}
+
+	// The report names the interpreter a python: step would run, rather than
+	// applying PLAN.md Section 9's order a second time: a $SHOTS_PYTHON that is
+	// not there falls through in both places, or in neither.
+	t.Run("the python line is what a python: step would run", func(t *testing.T) {
+		t.Setenv("SHOTS_PYTHON", filepath.Join(t.TempDir(), "python-that-moved"))
+		want, err := process.Python()
+		if err != nil {
+			t.Skip("no Python interpreter")
+		}
+		got := run(t, "doctor")
+		if !strings.Contains(string(got.stdout), "python  ") || !strings.Contains(string(got.stdout), want) {
+			t.Errorf("stdout does not report %q:\n%s", want, got.stdout)
+		}
+	})
 }
 
 // TestShotPageOptions checks the emulation flags by making --wait-for assert

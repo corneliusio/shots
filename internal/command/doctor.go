@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/mostlyserious/shots/internal/process"
 )
 
 type doctorCmd struct {
@@ -45,7 +46,7 @@ func (c *doctorCmd) Run(ctx context.Context, e *env) error {
 	c.checkBrowser(ctx, r)
 	c.checkCache(r)
 	checkTool(r, "ffmpeg", "ffmpeg is only needed for the video command", "ffmpeg")
-	checkTool(r, "python", "Python is only needed for python: steps", pythonNames()...)
+	checkPython(r)
 
 	if r.problems > 0 {
 		return fmt.Errorf("%d problem(s) found", r.problems)
@@ -114,12 +115,16 @@ func checkTool(r *checks, label, note string, names ...string) {
 	r.line(label, "not found (%s)", note)
 }
 
-// pythonNames is the resolution order from PLAN.md Section 9.
-func pythonNames() []string {
-	if custom := os.Getenv("SHOTS_PYTHON"); custom != "" {
-		return []string{custom}
+// checkPython reports the interpreter a python: step would run. It asks
+// [process.Python] rather than repeating PLAN.md Section 9's order, so the
+// report cannot disagree with what multi does.
+func checkPython(r *checks) {
+	path, err := process.Python()
+	if err != nil {
+		r.line("python", "not found (Python is only needed for python: steps)")
+		return
 	}
-	return []string{"python3", "python"}
+	r.line("python", "%s", path)
 }
 
 func orNone(value, fallback string) string {
