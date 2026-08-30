@@ -28,9 +28,8 @@ type probe struct {
 	} `json:"streams"`
 }
 
-// Probe reports what ffprobe sees in path. It is exported for the CLI
-// integration test, which asserts the same things about a real recording.
-func Probe(t *testing.T, path string) probe {
+// ffprobe reports what ffprobe sees in path.
+func ffprobe(t *testing.T, path string) probe {
 	t.Helper()
 	if _, err := exec.LookPath("ffprobe"); err != nil {
 		t.Skip("ffprobe is not installed")
@@ -107,7 +106,7 @@ func TestEncode(t *testing.T) {
 		{webm, "matroska,webm", "vp9"},
 		{mp4, "mov,mp4,m4a,3gp,3g2,mj2", "h264"},
 	} {
-		p := Probe(t, tt.path)
+		p := ffprobe(t, tt.path)
 		if p.Format.FormatName != tt.format {
 			t.Errorf("%s: format = %q, want %q", tt.path, p.Format.FormatName, tt.format)
 		}
@@ -152,7 +151,7 @@ func TestEncodeOddSize(t *testing.T) {
 	if err := r.Encode(t.Context(), Options{WebM: webm, End: end}); err != nil {
 		t.Fatal(err)
 	}
-	if s := Probe(t, webm).Streams[0]; s.Width != 102 || s.Height != 52 {
+	if s := ffprobe(t, webm).Streams[0]; s.Width != 102 || s.Height != 52 {
 		t.Errorf("%dx%d, want 102x52", s.Width, s.Height)
 	}
 }

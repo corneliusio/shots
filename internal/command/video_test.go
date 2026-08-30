@@ -277,6 +277,31 @@ func TestVideoNeedsAnOutput(t *testing.T) {
 	}
 }
 
+// ffmpeg is the whole output path, so a machine without it is told before the
+// storyboard is set up, launched or played.
+func TestVideoNeedsFFmpeg(t *testing.T) {
+	dir := t.TempDir()
+	story := writeStoryboard(t, dir, `output: demo.webm
+url: http://example.invalid/
+sh: touch ran-anyway
+scenes:
+- do:
+  - pause: 0.1
+`)
+	t.Setenv("PATH", "")
+	got := run(t, "video", story)
+	if got.code != exitFailure {
+		t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitFailure, got.stderr)
+	}
+	if !strings.Contains(got.stderr, "ffmpeg is required") {
+		t.Errorf("stderr = %q, want it to mention ffmpeg", got.stderr)
+	}
+	// Nothing ran: no setup step, no browser, no spool.
+	if names, _ := filepath.Glob(filepath.Join(dir, "*")); len(names) != 1 {
+		t.Errorf("the run left %v behind, want only the storyboard", names)
+	}
+}
+
 func TestResolveURL(t *testing.T) {
 	tests := []struct {
 		name string
