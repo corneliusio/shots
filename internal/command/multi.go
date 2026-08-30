@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"net/url"
 	"os"
 	"slices"
 	"time"
@@ -363,28 +361,9 @@ func serverAddress(entries []config.Entry) string {
 		if i > 0 && !entry.Server.Empty() {
 			break
 		}
-		if entry.URL == "" {
-			continue
+		if addr := hostPort(entry.URL); addr != "" {
+			return addr
 		}
-		target, err := NormalizeURL(entry.URL)
-		if err != nil {
-			continue
-		}
-		u, err := url.Parse(target)
-		if err != nil || u.Host == "" {
-			continue
-		}
-		port := u.Port()
-		switch {
-		case port != "":
-		case u.Scheme == "http":
-			port = "80"
-		case u.Scheme == "https":
-			port = "443"
-		default:
-			continue
-		}
-		return net.JoinHostPort(u.Hostname(), port)
 	}
 	return ""
 }

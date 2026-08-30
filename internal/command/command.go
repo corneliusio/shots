@@ -53,6 +53,7 @@ type cli struct {
 	PDF           pdfCmd           `cmd:"" name:"pdf" help:"Print a page to PDF."`
 	Accessibility accessibilityCmd `cmd:"" help:"Print the accessibility tree of a page."`
 	HAR           harCmd           `cmd:"" name:"har" help:"Record the network traffic of a page as a HAR file."`
+	Video         videoCmd         `cmd:"" help:"Record a WebM video from a YAML storyboard."`
 	Auth          authCmd          `cmd:"" help:"Sign in to a site and save the authentication state."`
 	Install       installCmd       `cmd:"" help:"Download the pinned Chrome for Testing build."`
 	Doctor        doctorCmd        `cmd:"" help:"Report the browser and tools shots will use."`

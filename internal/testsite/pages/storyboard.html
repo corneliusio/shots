@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storyboard</title>
+    <style>
+      /* Font-independent boxes, so an assertion about geometry holds anywhere. */
+      html, body { margin: 0; background: #ffffff; font: 16px/1.4 monospace; }
+      #panel { position: absolute; left: 0; top: 0; width: 400px; height: 200px; }
+      #open { position: absolute; left: 20px; top: 20px; width: 160px; height: 40px; background: #ff0000; color: #ffffff; border: 0; }
+      #query { position: absolute; left: 20px; top: 80px; width: 200px; height: 30px; }
+      #echo { position: absolute; left: 20px; top: 130px; }
+      #tall { position: absolute; left: 0; top: 400px; width: 100px; height: 2000px; background: #eeeeee; }
+      #bottom { position: absolute; left: 20px; top: 2300px; }
+      #revealed { position: absolute; left: 220px; top: 20px; color: #0000ff; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <button id="open" type="button">open</button>
+      <input id="query" name="query" value="" />
+      <p id="echo"></p>
+      <p id="revealed" hidden>revealed</p>
+    </div>
+    <div id="tall"></div>
+    <p id="bottom">bottom</p>
+    <script>
+      // A click reveals an element, so a storyboard has something to wait for.
+      document.getElementById('open').addEventListener('click', () => {
+        document.getElementById('revealed').hidden = false;
+      });
+      // The echo mirrors the field, so typing and filling are both observable.
+      const query = document.getElementById('query');
+      query.addEventListener('input', () => {
+        document.getElementById('echo').textContent = query.value;
+      });
+      query.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          location.hash = '#searched';
+        }
+      });
+    </script>
+  </body>
+</html>
