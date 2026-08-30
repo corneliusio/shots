@@ -21,6 +21,7 @@ func TestFilenameFor(t *testing.T) {
 		want string
 	}{
 		{"https://example.com/", "png", "example-com.png"},
+		{"https://example.com/", "har.zip", "example-com.har.zip"},
 		{"https://example.com", "png", "example-com.png"},
 		{"http://www.example.com/foo/bar", "jpg", "www-example-com-foo-bar.jpg"},
 		{"https://example.com/search?q=hello world", "png", "example-com-search.png"},
@@ -53,35 +54,33 @@ func TestFilenameForNeverEscapesDirectory(t *testing.T) {
 }
 
 func TestUniqueAddsCollisionSuffixes(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "example-com.png")
-
-	for i, want := range []string{base, base[:len(base)-4] + ".1.png", base[:len(base)-4] + ".2.png"} {
-		got, err := artifact.Unique(base)
-		if err != nil {
-			t.Fatalf("Unique: %v", err)
-		}
-		if got != want {
-			t.Fatalf("Unique #%d = %q, want %q", i, got, want)
-		}
-		if err := os.WriteFile(got, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	tests := []struct {
+		name string
+		stem string
+		ext  string
+		want []string
+	}{
+		{"extension", "example-com", "png", []string{"example-com.png", "example-com.1.png", "example-com.2.png"}},
+		// A multi-part extension stays whole: the suffix goes in front of it.
+		{"multi-part extension", "trace", "har.zip", []string{"trace.har.zip", "trace.1.har.zip"}},
+		{"no extension", "shot", "", []string{"shot", "shot.1"}},
 	}
-}
-
-func TestUniqueWithoutExtension(t *testing.T) {
-	dir := t.TempDir()
-	base := filepath.Join(dir, "shot")
-	if err := os.WriteFile(base, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := artifact.Unique(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != base+".1" {
-		t.Errorf("Unique = %q, want %q", got, base+".1")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for i, want := range tt.want {
+				got, err := artifact.Unique(filepath.Join(dir, tt.stem), tt.ext)
+				if err != nil {
+					t.Fatalf("Unique: %v", err)
+				}
+				if want := filepath.Join(dir, want); got != want {
+					t.Fatalf("Unique #%d = %q, want %q", i, got, want)
+				}
+				if err := os.WriteFile(got, []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
@@ -106,6 +105,17 @@ func TestPath(t *testing.T) {
 	}
 	if got != "example-com.1.png" {
 		t.Fatalf("Path = %q, want example-com.1.png", got)
+	}
+
+	if err := os.WriteFile("example-com.har.zip", []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err = artifact.Path("", "https://example.com/", "har.zip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "example-com.1.har.zip" {
+		t.Fatalf("Path = %q, want example-com.1.har.zip", got)
 	}
 
 	// An explicit path is used verbatim, even when it exists.

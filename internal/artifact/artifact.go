@@ -36,15 +36,20 @@ type Options struct {
 	Stdout io.Writer
 }
 
-// FilenameFor derives an automatic output filename from a URL, matching
-// shot-scraper: take the host and path, fold ".", "/" and "-" to "-", drop
-// every character outside [A-Za-z0-9_-], and append the extension. Query
-// strings and fragments are excluded, and the result never contains a path
-// separator.
+// FilenameFor derives an automatic output filename from a URL and an extension
+// such as "png" or "har.zip", matching shot-scraper: take the host and path,
+// fold ".", "/" and "-" to "-", drop every character outside [A-Za-z0-9_-], and
+// append the extension. Query strings and fragments are excluded, and the
+// result never contains a path separator.
 //
 // Where upstream would produce a bare extension (a hidden ".png" for a URL with
 // no usable host or path), this returns "shot" as the stem instead.
 func FilenameFor(rawURL, ext string) string {
+	return join(stemFor(rawURL), ext)
+}
+
+// stemFor derives the extension-less part of an automatic filename.
+func stemFor(rawURL string) string {
 	base := rawURL
 	if u, err := url.Parse(rawURL); err == nil {
 		base = u.Host + u.Path
@@ -62,22 +67,30 @@ func FilenameFor(rawURL, ext string) string {
 	if name == "" {
 		name = "shot"
 	}
-	return name + "." + ext
+	return name
 }
 
-// Unique returns path, or path with a ".1", ".2", ... suffix inserted before
-// its extension, for the first variant that does not yet exist.
+func join(stem, ext string) string {
+	if ext == "" {
+		return stem
+	}
+	return stem + "." + ext
+}
+
+// Unique returns "stem.ext", or "stem.1.ext", "stem.2.ext" and so on, for the
+// first variant that does not yet exist. The extension is given separately
+// rather than derived from the name, so multi-part extensions such as "har.zip"
+// keep the suffix in front of the whole extension.
 //
 // Nothing is reserved on disk, so a concurrent writer can still win the race
 // between this call and the write that follows it.
-func Unique(path string) (string, error) {
-	ext := filepath.Ext(path)
-	stem := strings.TrimSuffix(path, ext)
+func Unique(stem, ext string) (string, error) {
 	for suffix := 0; suffix <= maxSuffix; suffix++ {
-		candidate := path
+		candidate := stem
 		if suffix > 0 {
-			candidate = fmt.Sprintf("%s.%d%s", stem, suffix, ext)
+			candidate = fmt.Sprintf("%s.%d", stem, suffix)
 		}
+		candidate = join(candidate, ext)
 		switch _, err := os.Lstat(candidate); {
 		case errors.Is(err, fs.ErrNotExist):
 			return candidate, nil
@@ -85,7 +98,7 @@ func Unique(path string) (string, error) {
 			return "", err
 		}
 	}
-	return "", fmt.Errorf("%s: more than %d files with this name", path, maxSuffix)
+	return "", fmt.Errorf("%s: more than %d files with this name", join(stem, ext), maxSuffix)
 }
 
 // Path resolves the destination for an artifact. An explicit output path is
@@ -95,7 +108,7 @@ func Path(output, rawURL, ext string) (string, error) {
 	if output != "" {
 		return output, nil
 	}
-	return Unique(FilenameFor(rawURL, ext))
+	return Unique(stemFor(rawURL), ext)
 }
 
 // Write writes data to path. See [WriteStream].
