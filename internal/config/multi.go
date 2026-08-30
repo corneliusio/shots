@@ -123,22 +123,13 @@ func (e *Entry) validate(path string, line int, lines map[string]int) error {
 	}
 	c.positive("width", e.Width)
 	c.positive("height", e.Height)
-	c.positive("timeout", e.Timeout)
 	c.nonNegative("wait", e.Wait)
 	c.nonNegative("padding", e.Padding)
-	if c.present("scale_factor") {
-		if e.ScaleFactor <= 0 {
-			c.fail("scale_factor", "must be positive")
-		}
-		if e.Retina {
-			c.fail("scale_factor", "cannot be combined with retina")
-		}
-	}
 	if c.present("quality") && (e.Quality < 1 || e.Quality > 100) {
 		c.fail("quality", "must be between 1 and 100")
 	}
-	if e.Skip && e.Fail {
-		c.fail("fail", "cannot be combined with skip")
+	if c.present("javascript") && c.present("js_file") {
+		c.fail("js_file", "cannot be combined with javascript")
 	}
 	for _, group := range []struct {
 		names     []string

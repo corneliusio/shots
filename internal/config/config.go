@@ -68,6 +68,10 @@ func (c Command) Empty() bool {
 // Every part is optional except that an entry with no step must request a
 // screenshot. Empty steps and an empty URL are rejected during decoding, so a
 // non-zero value means "present".
+//
+// The key set is exactly upstream's, recorded in COMPAT.md. Settings such as
+// retina, scale factor, timeout, skip and fail are command-line flags upstream,
+// never per-entry keys, so they are not fields here.
 type Entry struct {
 	Sh     Command `yaml:"sh"`
 	Python string  `yaml:"python"`
@@ -81,15 +85,12 @@ type Entry struct {
 	Width  int `yaml:"width"`
 	Height int `yaml:"height"`
 
-	Quality        int     `yaml:"quality"`
-	ScaleFactor    float64 `yaml:"scale_factor"`
-	Retina         bool    `yaml:"retina"`
-	OmitBackground bool    `yaml:"omit_background"`
+	Quality        int  `yaml:"quality"`
+	OmitBackground bool `yaml:"omit_background"`
 
-	// Wait and Timeout are milliseconds.
+	// Wait is milliseconds.
 	Wait       int    `yaml:"wait"`
 	WaitFor    string `yaml:"wait_for"`
-	Timeout    int    `yaml:"timeout"`
 	JavaScript string `yaml:"javascript"`
 	// JSFile is a path to a JavaScript file, resolved against [Multi].BaseDir,
 	// or a "gh:user/script" reference, which is left as written.
@@ -102,7 +103,4 @@ type Entry struct {
 	JSSelectors    StringList `yaml:"js_selectors" alias:"js_selector"`
 	JSSelectorsAll StringList `yaml:"js_selectors_all" alias:"js_selector_all"`
 	Padding        int        `yaml:"padding"`
-
-	Skip bool `yaml:"skip"`
-	Fail bool `yaml:"fail"`
 }

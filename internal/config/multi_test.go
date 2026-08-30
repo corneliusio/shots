@@ -51,9 +51,7 @@ func TestParseShot(t *testing.T) {
   quality: 80
   wait: 500
   wait_for: document.title
-  timeout: 10000
   javascript: document.body.classList.add('ready')
-  js_file: scripts/remove-banners.js
   selector: "#main"
   selectors:
     - .a
@@ -62,9 +60,7 @@ func TestParseShot(t *testing.T) {
   js_selector: div
   js_selectors_all: [span]
   padding: 10
-  retina: true
   omit_background: true
-  skip: true
 `)
 	if len(m.Entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(m.Entries))
@@ -77,18 +73,14 @@ func TestParseShot(t *testing.T) {
 		Quality:    80,
 		Wait:       500,
 		WaitFor:    "document.title",
-		Timeout:    10000,
 		JavaScript: "document.body.classList.add('ready')",
-		JSFile:     "scripts/remove-banners.js",
 		// selector and selectors are aliases; values accumulate in source order.
 		Selectors:      config.StringList{"#main", ".a", ".b"},
 		SelectorsAll:   config.StringList{".item"},
 		JSSelectors:    config.StringList{"div"},
 		JSSelectorsAll: config.StringList{"span"},
 		Padding:        10,
-		Retina:         true,
 		OmitBackground: true,
-		Skip:           true,
 	}
 	if got := m.Entries[0]; !reflect.DeepEqual(got, want) {
 		t.Errorf("entry =\n%+v\nwant\n%+v", got, want)
@@ -345,27 +337,6 @@ func TestParseErrors(t *testing.T) {
 			msg:  "must not be negative",
 		},
 		{
-			name: "zero timeout",
-			yaml: "- url: https://example.com/\n  timeout: 0\n",
-			path: "entries[0].timeout",
-			line: 2,
-			msg:  "must be positive",
-		},
-		{
-			name: "zero scale factor",
-			yaml: "- url: https://example.com/\n  scale_factor: 0\n",
-			path: "entries[0].scale_factor",
-			line: 2,
-			msg:  "must be positive",
-		},
-		{
-			name: "scale factor with retina",
-			yaml: "- url: https://example.com/\n  retina: true\n  scale_factor: 2\n",
-			path: "entries[0].scale_factor",
-			line: 3,
-			msg:  "cannot be combined with retina",
-		},
-		{
 			name: "quality too high",
 			yaml: "- url: https://example.com/\n  quality: 101\n",
 			path: "entries[0].quality",
@@ -380,11 +351,11 @@ func TestParseErrors(t *testing.T) {
 			msg:  "must be between 1 and 100",
 		},
 		{
-			name: "skip and fail",
-			yaml: "- url: https://example.com/\n  skip: true\n  fail: true\n",
-			path: "entries[0].fail",
+			name: "javascript and js_file",
+			yaml: "- url: https://example.com/\n  javascript: 1\n  js_file: a.js\n",
+			path: "entries[0].js_file",
 			line: 3,
-			msg:  "cannot be combined with skip",
+			msg:  "cannot be combined with javascript",
 		},
 		{
 			name: "empty selector",
@@ -436,18 +407,20 @@ func TestSyntaxError(t *testing.T) {
 
 func TestValidValues(t *testing.T) {
 	// Values that are only rejected when the key is actually present.
-	m := parse(t, "- url: https://example.com/\n  wait: 0\n  padding: 0\n  scale_factor: 0.5\n  quality: 1\n")
-	if e := m.Entries[0]; e.ScaleFactor != 0.5 || e.Quality != 1 {
+	m := parse(t, "- url: https://example.com/\n  wait: 0\n  padding: 0\n  quality: 1\n")
+	if e := m.Entries[0]; e.Wait != 0 || e.Padding != 0 || e.Quality != 1 {
 		t.Errorf("entry = %+v", e)
 	}
 }
 
-// Only a true retina conflicts with scale_factor; generated configuration
-// writes both keys routinely.
-func TestRetinaFalseAllowsScaleFactor(t *testing.T) {
-	m := parse(t, "- url: https://example.com/\n  retina: false\n  scale_factor: 2\n")
-	if e := m.Entries[0]; e.Retina || e.ScaleFactor != 2 {
-		t.Errorf("entry = %+v", e)
+// Command-line flags upstream, so they are unknown keys here rather than
+// silently ignored settings. See COMPAT.md.
+func TestFlagsAreNotEntryKeys(t *testing.T) {
+	for _, key := range []string{"retina", "scale_factor", "timeout", "skip", "fail"} {
+		err := parseErr(t, "- url: https://example.com/\n  "+key+": 1\n")
+		if err.Path != "entries[0]."+key || err.Msg != "unknown field" {
+			t.Errorf("%s: err = %v", key, err)
+		}
 	}
 }
 
