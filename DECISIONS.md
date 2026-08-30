@@ -660,3 +660,124 @@ rule, and the copies had already drifted: with `$SHOTS_PYTHON` pointing at a
 moved interpreter, `doctor` printed "python: not found" while `multi` ran
 `python3` happily. One resolver, asked by both, is what makes the diagnostic
 worth reading. `checkTool` stays for `ffmpeg`, which has no resolution order.
+
+## Stage 6 — `video` and storyboards
+
+**The frame-capture mode is `Page.startScreencast`, because the alternative no
+longer exists.** PLAN.md Phase 1 asked for both candidates to be measured
+against a real storyboard. Against Chrome 152:
+
+- `HeadlessExperimental.beginFrame` answers `'HeadlessExperimental.beginFrame'
+  wasn't found (-32601)`. The domain went away with the old headless mode, and
+  there is no virtual-time frame stepping to fall back on. The plan's preferred
+  default is not available at all, so the "screencast for headed, beginFrame for
+  headless" split has nothing to split.
+- `Page.startScreencast` delivered 179 PNG frames in 3.0s (59.6 fps, longest gap
+  20ms) from a page animating at 60Hz, and one frame in 3s from a page that did
+  not change — it sends a frame when the surface changes, which is exactly what
+  a spool with per-frame durations wants.
+- A third option, polling `Page.captureScreenshot`, was measured because it is
+  the one that gives exact dimensions for free: 51 frames in 3.0s at 1280x720,
+  17 fps. That is below the rate a demo video needs, and every frame is a
+  synchronous paint the page under test has to wait for.
+
+So screencast it is, in headless, which is the only mode `video` runs in.
+
+**The window is what a screencast captures, so the window is what gets sized.**
+Frames come out at the rendered surface's size, not the emulated viewport's:
+`--window-size=1280,720` with `Emulation.setDeviceMetricsOverride(1280, 720)`
+still gave 1280x577 frames on macOS, because the window is 143px taller than its
+content there. `Page.Fit` therefore measures `innerWidth`/`innerHeight` and grows
+the window by the difference through `Browser.setWindowBounds`; one adjustment
+reaches 1280x720 exactly, and the video needs no scaling or cropping.
+
+`Fit` reports the size it reached rather than failing when it cannot: Chrome
+enforces a minimum window width (500 on macOS), so a storyboard asking for a
+320-wide viewport gets 500 and a line on stderr saying so. Recording at the size
+the window actually is beats refusing to record.
+
+**`internal/video` is the spool and the encoder; the storyboard runs in
+`internal/command/video.go`.** PLAN.md Section 4 gives `video/` "storyboard
+execution and screencast processing". Execution needs `NormalizeURL`, which
+lives in `command`, and `command` imports `video` — so the split as written is a
+cycle unless URL normalization moves to a third package for one caller. Putting
+the run loop next to `multi`'s, which is the same shape (steps, a server, a
+browser held across the run), keeps one place to look for batch orchestration,
+and leaves `video` a package that turns timestamped frames into a file and can
+be tested without a browser at all.
+
+**A storyboard action is one struct with a `Kind`, driven by a table.** Thirteen
+action types as a Go union would be thirteen structs, an interface, and a type
+switch that ends up being a switch on the name anyway. `config.Action` carries
+the union of the fields, and `actionSpecs` maps each action name to the keys its
+mapping form accepts and the key its scalar shorthand fills — so `click: "#go"`
+and `click: {selector: "#go", button: right}` decode through one path, and
+`click: {key: Enter}` is rejected as an unknown field because `key` is not in
+`click`'s list. `decodeStruct` grew one variadic argument to do it.
+
+**Nested values report their own field path, and the parent roots it.**
+`scenes[0].do[2].click.selector` is composed rather than threaded: `Scene`,
+`Action`, `Viewport` and `Cursor` are `yaml.Unmarshaler`s that report paths
+relative to themselves, `Scenes` and `Actions` are named slice types that prefix
+`[i]`, and `decodeField` re-roots any `*config.Error` that comes back onto the
+key it was decoding. yaml.v3 returns a custom unmarshaler's error verbatim, which
+is what makes this work.
+
+**`cursor: false` decodes to a cursor with nothing turned on.** A
+`yaml.Unmarshaler` cannot set its own pointer to nil, and upstream's condition is
+`if cursor and (visible or clicks)` — so `Cursor.Enabled()` is that condition,
+and absent, `false` and `{visible: false, clicks: false}` all mean the same
+thing without a second representation.
+
+**One ffmpeg run writes both files, from the frames.** Upstream converts the
+recorded WebM to MP4 with a second ffmpeg pass. Reading the spool once and
+encoding two outputs from it costs one process, one decode, and no second
+generation of loss. The WebM is VP9 (`-crf 32 -b:v 0`), the MP4 is H.264
+(`-crf 23 -preset veryfast -movflags +faststart`), both `yuv420p` at 30fps.
+
+`-xerror` is on, because ffmpeg's default is to skip a frame it cannot read and
+exit 0: a video missing half its frames has to fail, not ship. Both outputs are
+written to a temporary file in the destination directory and renamed, so a
+failed encode leaves neither.
+
+A viewport with an odd dimension is padded to the next even one rather than
+rescaled — `yuv420p` has no other option, and a pixel of padding keeps every
+frame's own pixels where they are.
+
+**ffmpeg is required for any video, not only for `--mp4`.** Upstream gets its
+WebM from Playwright and needs ffmpeg only for the MP4 conversion, so its
+documented behaviour is "the WebM is still created but the command exits
+non-zero". Here the encoder is the whole output path, so a missing ffmpeg is
+reported before Chrome is launched — `doctor` already names it.
+
+**Frames are spooled beside the output and removed on success.** The spool is
+`shots-frames-*` in the video's own directory, so it is on the same filesystem
+as the output and obvious when it is left behind. It survives a failed encode
+(with the path in the error) and `--keep-frames`, which is a shots flag upstream
+does not have; PLAN.md Section 7 asks for both.
+
+**Selectors are CSS, and `wait_for_url` is a glob.** Upstream passes `wait_for`
+to a Playwright locator, so `text=Quick start` and `h1:has-text("Installation")`
+work there. PLAN.md Section 2 rules out Playwright selector compatibility, so
+`wait_for`, `click`, `type`, `fill`, `press` and `scroll: {to:}` take a CSS
+selector and nothing else. `wait_for_url` compiles a glob to a regular
+expression — `**` for anything, `*` and `?` stopping at a slash — which is the
+part of Playwright's URL matching a storyboard actually uses.
+
+**Actions dispatch real input events, not synthetic DOM ones.** A click resolves
+the element's centre in the page, dispatches `mouseMoved` there and only then
+presses, so the injected cursor travels to the element instead of appearing on
+top of it. `type` sends one key event per rune through chromedp's keyboard
+tables, `delay_ms` apart, because a video of text appearing all at once is not a
+video of typing. `press` accepts every DOM key name Chrome knows plus modifier
+combinations (`Shift+Tab`, `ControlOrMeta+A`, which is Meta on macOS and Control
+elsewhere); a held modifier suppresses the character event, because Control+A
+selects rather than inserting an "a". `fill` goes through the native `value`
+setter and then fires `input` and `change`, which is what a framework watching
+the property waits for.
+
+**`shots video` has no `--output -`.** A WebM is a container ffmpeg seeks
+around while writing; there is nothing useful to stream. `-o -` is a usage
+error, and `--output` otherwise resolves against the current directory while
+the storyboard's own `output:` resolves against the storyboard, as every other
+path in a configuration file does.
