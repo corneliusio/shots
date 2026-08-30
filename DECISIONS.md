@@ -56,13 +56,17 @@ Per-key strict decoding bypasses the library's merge handling, and silently
 half-supporting merges would be worse than saying so. Anchoring and aliasing a
 whole entry still works.
 
-**Automatic filenames match upstream except for the empty stem.**
-`artifact.FilenameFor` reproduces shot-scraper's `filename_for_url`: fold
-`netloc + path` on `.` and `/` to `-`, drop every character outside
-`[A-Za-z0-9_-]`, trim hyphens, append the extension. Queries and fragments are
-excluded because they are outside `path`. The one difference: a URL with no
-usable host or path leaves upstream with an empty stem and a hidden file named
-`.png`, where `shots` uses `shot.png`. Collision suffixes are applied to the
+**Automatic filenames match upstream except for the empty stem and trailing
+hyphens.** `artifact.FilenameFor` reproduces shot-scraper's `filename_for_url`
+(COMPAT.md): fold `netloc + path` on `.` and `/` to `-`, drop every character
+outside `[A-Za-z0-9_-]`, trim hyphens, append the extension. Queries and
+fragments are excluded because they are outside `path`. Two differences, both
+in upstream's favour of the uglier name: a URL with no usable host or path
+leaves upstream with an empty stem and a hidden file named `.png`, where `shots`
+uses `shot.png`; and upstream right-trims hyphens *before* dropping disallowed
+characters, so a path ending in punctuation keeps a trailing hyphen
+(`example-com-a-.png`), where `shots` trims both ends afterwards. Neither is
+worth reproducing. Collision suffixes are applied to the
 stem and extension the name was built from, not re-derived from the finished
 path, so a multi-part extension stays whole: `trace.har.zip` collides to
 `trace.1.har.zip`, as upstream does.
@@ -71,3 +75,19 @@ path, so a multi-part extension stays whole: `trace.har.zip` collides to
 implemented.** Upstream's exact rule for "JPEG quality with a non-JPEG output"
 is ambiguous enough that guessing would create a difference that has to be
 documented later. Only the 1-100 range is checked.
+
+**The Phase 0 flag matrix lives in `COMPAT.md`.** Read out of the pinned
+commit's `cli.py`: every command, its arguments and its flags (including the
+ones applied through Click's shared-decorator helpers), the multi-shot YAML key
+set, and the handful of upstream helper functions whose exact behaviour `shots`
+has to reproduce. It is a lookup table, refreshed only when the pinned commit
+moves.
+
+**An entry's keys are exactly upstream's; nothing else is accepted.** An earlier
+revision of `Entry` also carried `retina`, `scale_factor`, `timeout`, `skip` and
+`fail`. Upstream never reads those from a shot dict — they are command-level
+flags that apply to the whole run — so they are now unknown fields, which is the
+whole point of strict decoding: a config that sets `retina: true` says so out
+loud instead of being silently ignored. Their validations move to the flags in
+Phase 2. The `javascript` + `js_file` exclusion stays, because upstream's
+`_resolve_javascript` is called per entry.
