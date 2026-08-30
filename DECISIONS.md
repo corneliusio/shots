@@ -286,7 +286,12 @@ serialize a value nobody reads, so `-j "…; window"` — or any script ending i
 DOM node or a cyclic object — failed the whole command on `shot`, `html`, `pdf`
 and `accessibility`. `Page.Exec` now runs the same two steps without
 `returnByValue`, `Page.Eval` keeps it for `shots javascript`, whose result is
-the artifact, and both are two lines over one unexported `evaluate`.
+the artifact, and both are two lines over one unexported `evaluate`. There are
+two steps because there have to be: the first evaluation cannot ask for the
+value by value, or a source that evaluates to a function would come back as a
+description instead of a handle to call. Whatever comes back with a handle — a
+function to call, an object to serialize — is resolved by a second call, with
+promises awaited at both steps.
 
 **`-i` is `--interactive`, and the script file flag is `--js-file` on every
 command.** Upstream spends `-i` on `javascript --input`, which is that command's
@@ -308,14 +313,6 @@ promise than none. `gh:user/script.js` expands to
 `gh:user/repo/path/script.js` to that repository, with `.js` appended when it is
 missing — upstream's rule. Remote scripts are user-trusted code that nothing
 sandboxes, as PLAN.md Section 11 says.
-
-**`Page.Exec` became `Page.Eval`, which returns the result as JSON.** The
-`javascript` command needs the value that `shot` throws away, so there is one
-method rather than two. It evaluates in two steps because it has to: the first
-evaluation cannot ask for the value by value, or a source that evaluates to a
-function would come back as a description instead of a handle to call. Whatever
-comes back with a handle — a function to call, an object to serialize — is
-resolved by a second call, with promises awaited at both steps.
 
 **Results print as re-indented JSON, not re-encoded JSON.** `json.Indent` over
 Chrome's own bytes keeps object keys in the order the page produced them;
