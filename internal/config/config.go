@@ -1,9 +1,8 @@
 // Package config decodes shots configuration files.
 //
-// Multi-shot entries are a union type — a screenshot request, or a `sh:`,
-// `python:` or `server:` step — so decoding goes through [yaml.Node]: each
-// entry is classified by its discriminating key, decoded strictly into the
-// matching struct, and reported with a field path such as "entries[3].server".
+// Decoding goes through [yaml.Node] rather than stock strict unmarshalling, so
+// that unknown, duplicate and malformed keys are reported with a field path
+// such as "entries[3].server" and the line they appeared on.
 package config
 
 import (
@@ -62,12 +61,18 @@ func (c Command) Empty() bool {
 	return strings.TrimSpace(c.Shell) == "" && len(c.Args) == 0
 }
 
-// Entry is one step of a multi-shot run: a [*Shot], [*Sh], [*Python] or
-// [*Server].
-type Entry interface{ entry() }
+// Entry is one entry of a multi-shot run. Its parts run in field order — the
+// shell, Python and server steps first, then a screenshot if URL is set — so a
+// single entry can prepare a page and capture it, as upstream does.
+//
+// Every part is optional except that an entry with no step must request a
+// screenshot. Empty steps and an empty URL are rejected during decoding, so a
+// non-zero value means "present".
+type Entry struct {
+	Sh     Command `yaml:"sh"`
+	Python string  `yaml:"python"`
+	Server Command `yaml:"server"`
 
-// Shot is a screenshot request.
-type Shot struct {
 	URL string `yaml:"url"`
 	// Output is the destination path, already resolved against
 	// [Multi].BaseDir. Empty means an automatic filename.
@@ -86,6 +91,9 @@ type Shot struct {
 	WaitFor    string `yaml:"wait_for"`
 	Timeout    int    `yaml:"timeout"`
 	JavaScript string `yaml:"javascript"`
+	// JSFile is a path to a JavaScript file, resolved against [Multi].BaseDir,
+	// or a "gh:user/script" reference, which is left as written.
+	JSFile string `yaml:"js_file"`
 
 	// The singular and plural spellings of each selector key are aliases;
 	// values from both accumulate in source order.
@@ -98,17 +106,3 @@ type Shot struct {
 	Skip bool `yaml:"skip"`
 	Fail bool `yaml:"fail"`
 }
-
-// Sh runs a shell command.
-type Sh struct{ Command }
-
-// Python runs a Python script.
-type Python struct{ Code string }
-
-// Server starts a background server for the rest of the run.
-type Server struct{ Command }
-
-func (*Shot) entry()   {}
-func (*Sh) entry()     {}
-func (*Python) entry() {}
-func (*Server) entry() {}

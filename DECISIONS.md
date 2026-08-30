@@ -33,9 +33,23 @@ rather than into eight struct fields that every consumer would have to
 concatenate. The strict decoder supports this with an `alias` struct tag; each
 spelling is still reported by the name the file actually used.
 
-**`sh:`, `python:` and `server:` entries accept no other keys.** Each is decoded
-as a one-field struct, so `- sh: ... \n  output: x` fails with
-`entries[0].output: unknown field` rather than being silently ignored.
+**A multi-shot entry is one struct, not a union.** PLAN.md Section 3 describes
+entries as a union type ("a screenshot request *or* `sh:` / `python:` /
+`server:`"), but upstream executes each entry as independent `if`s — `sh`, then
+`python`, then `server`, then a screenshot when `url` is present — and its
+documentation leads with exactly that combination (`sh:` writing a file,
+`output:` and `url:` capturing it). Decoding a union would reject those files.
+One `Entry` struct with optional step fields matches the execution order,
+deletes the entry interface and the per-step structs, and keeps what Section 3
+was really buying: `yaml.Node` decoding with strict unknown-field rejection and
+`entries[3].server` field paths. An entry with no step must still name a `url`,
+so a plain typo is not silently a no-op; shot keys alongside a step-only entry
+are ignored, as upstream ignores them.
+
+**A configuration file holds exactly one YAML document.** A second document is
+rejected with "expected a single YAML document" instead of being dropped, which
+is what `yaml.Unmarshal` would do and what upstream's `yaml.safe_load` also
+refuses. A leading `---` is still fine.
 
 **YAML merge keys (`<<:`) are rejected with a message that names them.**
 Per-key strict decoding bypasses the library's merge handling, and silently
@@ -48,7 +62,10 @@ whole entry still works.
 `[A-Za-z0-9_-]`, trim hyphens, append the extension. Queries and fragments are
 excluded because they are outside `path`. The one difference: a URL with no
 usable host or path leaves upstream with an empty stem and a hidden file named
-`.png`, where `shots` uses `shot.png`.
+`.png`, where `shots` uses `shot.png`. Collision suffixes are applied to the
+stem and extension the name was built from, not re-derived from the finished
+path, so a multi-part extension stays whole: `trace.har.zip` collides to
+`trace.1.har.zip`, as upstream does.
 
 **Cross-validating `quality` against the output file extension is not
 implemented.** Upstream's exact rule for "JPEG quality with a non-JPEG output"

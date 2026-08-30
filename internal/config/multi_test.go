@@ -53,6 +53,7 @@ func TestParseShot(t *testing.T) {
   wait_for: document.title
   timeout: 10000
   javascript: document.body.classList.add('ready')
+  js_file: scripts/remove-banners.js
   selector: "#main"
   selectors:
     - .a
@@ -68,11 +69,7 @@ func TestParseShot(t *testing.T) {
 	if len(m.Entries) != 1 {
 		t.Fatalf("got %d entries, want 1", len(m.Entries))
 	}
-	shot, ok := m.Entries[0].(*config.Shot)
-	if !ok {
-		t.Fatalf("entry is %T, want *config.Shot", m.Entries[0])
-	}
-	want := &config.Shot{
+	want := config.Entry{
 		URL:        "https://example.com/",
 		Output:     "example.png",
 		Width:      800,
@@ -82,6 +79,7 @@ func TestParseShot(t *testing.T) {
 		WaitFor:    "document.title",
 		Timeout:    10000,
 		JavaScript: "document.body.classList.add('ready')",
+		JSFile:     "scripts/remove-banners.js",
 		// selector and selectors are aliases; values accumulate in source order.
 		Selectors:      config.StringList{"#main", ".a", ".b"},
 		SelectorsAll:   config.StringList{".item"},
@@ -92,8 +90,8 @@ func TestParseShot(t *testing.T) {
 		OmitBackground: true,
 		Skip:           true,
 	}
-	if !reflect.DeepEqual(shot, want) {
-		t.Errorf("shot =\n%+v\nwant\n%+v", shot, want)
+	if got := m.Entries[0]; !reflect.DeepEqual(got, want) {
+		t.Errorf("entry =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
@@ -107,42 +105,56 @@ func TestParseSteps(t *testing.T) {
 - server: [python, -m, http.server]
 - url: https://example.com/
 `)
-	if len(m.Entries) != 6 {
-		t.Fatalf("got %d entries, want 6", len(m.Entries))
+	want := []config.Entry{
+		{Sh: config.Command{Shell: "echo hello"}},
+		{Sh: config.Command{Args: []string{"echo", "hello"}}},
+		{Python: "print(\"hi\")\n"},
+		{Server: config.Command{Shell: "python -m http.server 8000"}},
+		{Server: config.Command{Args: []string{"python", "-m", "http.server"}}},
+		{URL: "https://example.com/"},
 	}
-	sh, ok := m.Entries[0].(*config.Sh)
-	if !ok || sh.Shell != "echo hello" || sh.Args != nil {
-		t.Errorf("entries[0] = %+v, want a shell string step", m.Entries[0])
+	if !reflect.DeepEqual(m.Entries, want) {
+		t.Errorf("entries =\n%+v\nwant\n%+v", m.Entries, want)
 	}
-	sh, ok = m.Entries[1].(*config.Sh)
-	if !ok || sh.Shell != "" || !reflect.DeepEqual(sh.Args, []string{"echo", "hello"}) {
-		t.Errorf("entries[1] = %+v, want an argument vector step", m.Entries[1])
-	}
-	py, ok := m.Entries[2].(*config.Python)
-	if !ok || py.Code != "print(\"hi\")\n" {
-		t.Errorf("entries[2] = %+v, want a python step", m.Entries[2])
-	}
-	srv, ok := m.Entries[3].(*config.Server)
-	if !ok || srv.Shell != "python -m http.server 8000" {
-		t.Errorf("entries[3] = %+v, want a server step", m.Entries[3])
-	}
-	srv, ok = m.Entries[4].(*config.Server)
-	if !ok || !reflect.DeepEqual(srv.Args, []string{"python", "-m", "http.server"}) {
-		t.Errorf("entries[4] = %+v, want a server argument vector", m.Entries[4])
-	}
-	if _, ok := m.Entries[5].(*config.Shot); !ok {
-		t.Errorf("entries[5] = %T, want *config.Shot", m.Entries[5])
+}
+
+// Upstream's documented pattern: one entry does some work and then captures the
+// page it produced.
+func TestParseStepAndShotInOneEntry(t *testing.T) {
+	m := parse(t, `
+- server: python -m http.server 8000
+  sh: echo "Hello" > index.html
+  python: print("hi")
+  output: from-shell.png
+  url: http://localhost:8000/
+`)
+	want := []config.Entry{{
+		Sh:     config.Command{Shell: `echo "Hello" > index.html`},
+		Python: `print("hi")`,
+		Server: config.Command{Shell: "python -m http.server 8000"},
+		URL:    "http://localhost:8000/",
+		Output: "from-shell.png",
+	}}
+	if !reflect.DeepEqual(m.Entries, want) {
+		t.Errorf("entries =\n%+v\nwant\n%+v", m.Entries, want)
 	}
 }
 
 func TestParseEntryOrderIsPreserved(t *testing.T) {
 	m := parse(t, "- server: serve\n- url: http://localhost/\n- sh: cleanup\n")
-	var kinds []string
+	var got []string
 	for _, e := range m.Entries {
-		kinds = append(kinds, strings.TrimPrefix(reflect.TypeOf(e).String(), "*config."))
+		switch {
+		case !e.Server.Empty():
+			got = append(got, "server")
+		case e.URL != "":
+			got = append(got, "url")
+		case !e.Sh.Empty():
+			got = append(got, "sh")
+		}
 	}
-	if want := []string{"Server", "Shot", "Sh"}; !reflect.DeepEqual(kinds, want) {
-		t.Errorf("kinds = %v, want %v", kinds, want)
+	if want := []string{"server", "url", "sh"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("entries = %v, want %v", got, want)
 	}
 }
 
@@ -162,11 +174,18 @@ func TestParseErrors(t *testing.T) {
 			msg:  "unknown field",
 		},
 		{
-			name: "unknown field in a step",
-			yaml: "- sh: echo hi\n  output: out.txt\n",
-			path: "entries[0].output",
+			name: "unknown field beside a step",
+			yaml: "- sh: echo hi\n  outupt: out.txt\n",
+			path: "entries[0].outupt",
 			line: 2,
 			msg:  "unknown field",
+		},
+		{
+			name: "second document",
+			yaml: "- url: https://example.com/\n---\n- url: https://example.org/\n",
+			path: "",
+			line: 2,
+			msg:  "expected a single YAML document",
 		},
 		{
 			name: "merge key",
@@ -181,13 +200,6 @@ func TestParseErrors(t *testing.T) {
 			path: "entries[0].url",
 			line: 2,
 			msg:  "duplicate field",
-		},
-		{
-			name: "combined steps",
-			yaml: "- sh: echo hi\n  server: serve\n",
-			path: "entries[0]",
-			line: 1,
-			msg:  "sh and server cannot be combined in one entry",
 		},
 		{
 			name: "entry is not a mapping",
@@ -287,6 +299,14 @@ func TestParseErrors(t *testing.T) {
 			yaml: "- url: \"  \"\n",
 			path: "entries[0].url",
 			line: 1,
+			msg:  "required",
+		},
+		{
+			// A step may stand alone, but a url key still has to name a page.
+			name: "blank url beside a step",
+			yaml: "- sh: echo hi\n  url: \"\"\n",
+			path: "entries[0].url",
+			line: 2,
 			msg:  "required",
 		},
 		{
@@ -417,9 +437,17 @@ func TestSyntaxError(t *testing.T) {
 func TestValidValues(t *testing.T) {
 	// Values that are only rejected when the key is actually present.
 	m := parse(t, "- url: https://example.com/\n  wait: 0\n  padding: 0\n  scale_factor: 0.5\n  quality: 1\n")
-	shot := m.Entries[0].(*config.Shot)
-	if shot.ScaleFactor != 0.5 || shot.Quality != 1 {
-		t.Errorf("shot = %+v", shot)
+	if e := m.Entries[0]; e.ScaleFactor != 0.5 || e.Quality != 1 {
+		t.Errorf("entry = %+v", e)
+	}
+}
+
+// Only a true retina conflicts with scale_factor; generated configuration
+// writes both keys routinely.
+func TestRetinaFalseAllowsScaleFactor(t *testing.T) {
+	m := parse(t, "- url: https://example.com/\n  retina: false\n  scale_factor: 2\n")
+	if e := m.Entries[0]; e.Retina || e.ScaleFactor != 2 {
+		t.Errorf("entry = %+v", e)
 	}
 }
 
@@ -434,37 +462,42 @@ func TestAnchorsAndAliases(t *testing.T) {
 		t.Fatalf("got %d entries, want 2", len(m.Entries))
 	}
 	for i, e := range m.Entries {
-		shot, ok := e.(*config.Shot)
-		if !ok || shot.Width != 400 {
+		if e.Width != 400 {
 			t.Errorf("entries[%d] = %+v", i, e)
 		}
 	}
 }
 
-func TestBaseDirResolvesOutput(t *testing.T) {
-	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: shots/a.png\n- url: https://example.com/\n"), "/tmp/project")
+func TestBaseDirResolvesRelativePaths(t *testing.T) {
+	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: shots/a.png\n  js_file: js/clean.js\n- url: https://example.com/\n"), "/tmp/project")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Entries[0].(*config.Shot).Output; got != filepath.FromSlash("/tmp/project/shots/a.png") {
-		t.Errorf("output = %q, want it resolved against the base directory", got)
+	if got, want := m.Entries[0].Output, filepath.FromSlash("/tmp/project/shots/a.png"); got != want {
+		t.Errorf("output = %q, want %q", got, want)
 	}
-	if got := m.Entries[1].(*config.Shot).Output; got != "" {
+	if got, want := m.Entries[0].JSFile, filepath.FromSlash("/tmp/project/js/clean.js"); got != want {
+		t.Errorf("js_file = %q, want %q", got, want)
+	}
+	if got := m.Entries[1].Output; got != "" {
 		t.Errorf("output = %q, want it left empty", got)
 	}
 }
 
-func TestBaseDirLeavesAbsoluteAndStdout(t *testing.T) {
+func TestBaseDirLeavesAbsoluteStdoutAndGitHub(t *testing.T) {
 	abs := filepath.Join(string(filepath.Separator), "var", "a.png")
-	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: "+filepath.ToSlash(abs)+"\n- url: https://example.com/\n  output: \"-\"\n"), "/tmp/project")
+	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: "+filepath.ToSlash(abs)+"\n- url: https://example.com/\n  output: \"-\"\n  js_file: gh:simonw/shot-scraper/clean.js\n"), "/tmp/project")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Entries[0].(*config.Shot).Output; got != abs {
+	if got := m.Entries[0].Output; got != abs {
 		t.Errorf("output = %q, want %q", got, abs)
 	}
-	if got := m.Entries[1].(*config.Shot).Output; got != "-" {
+	if got := m.Entries[1].Output; got != "-" {
 		t.Errorf("output = %q, want -", got)
+	}
+	if got, want := m.Entries[1].JSFile, "gh:simonw/shot-scraper/clean.js"; got != want {
+		t.Errorf("js_file = %q, want %q", got, want)
 	}
 }
 
@@ -481,7 +514,7 @@ func TestLoadMulti(t *testing.T) {
 	if m.BaseDir != dir {
 		t.Errorf("BaseDir = %q, want %q", m.BaseDir, dir)
 	}
-	if got, want := m.Entries[0].(*config.Shot).Output, filepath.Join(dir, "out.png"); got != want {
+	if got, want := m.Entries[0].Output, filepath.Join(dir, "out.png"); got != want {
 		t.Errorf("output = %q, want %q", got, want)
 	}
 }

@@ -1,10 +1,12 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -33,11 +35,26 @@ func LoadMulti(path string) (*Multi, error) {
 // against baseDir; an empty baseDir leaves them untouched. An empty document is
 // a valid configuration with no entries.
 func ParseMulti(data []byte, baseDir string) (*Multi, error) {
+	m := &Multi{BaseDir: baseDir}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	switch err := dec.Decode(&doc); {
+	case errors.Is(err, io.EOF):
+		return m, nil
+	case err != nil:
 		return nil, &Error{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
 	}
-	m := &Multi{BaseDir: baseDir}
+	// A file may hold several YAML documents; taking only the first would drop
+	// entries silently.
+	var extra yaml.Node
+	switch err := dec.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+	case err != nil:
+		return nil, &Error{Msg: strings.TrimPrefix(err.Error(), "yaml: ")}
+	default:
+		return nil, errorf(&extra, "", "expected a single YAML document")
+	}
+
 	if len(doc.Content) == 0 {
 		return m, nil
 	}
@@ -58,126 +75,79 @@ func ParseMulti(data []byte, baseDir string) (*Multi, error) {
 	return m, nil
 }
 
-// steps are the keys that discriminate a non-screenshot entry.
-var steps = []string{"sh", "python", "server"}
-
 func decodeEntry(n *yaml.Node, path, baseDir string) (Entry, error) {
-	n = resolve(n)
-	if n.Kind != yaml.MappingNode {
-		return nil, errorf(n, path, "expected a mapping, got %s", kindOf(n))
-	}
-	// Repeated spellings of one step are deduplicated here so that they reach
-	// decodeStruct and are reported as a duplicate field, not as a combination.
-	var found []string
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if step := n.Content[i].Value; slices.Contains(steps, step) && !slices.Contains(found, step) {
-			found = append(found, step)
-		}
-	}
-	if len(found) > 1 {
-		return nil, errorf(n, path, "%s cannot be combined in one entry", strings.Join(found, " and "))
-	}
-	if len(found) == 0 {
-		return decodeShot(n, path, baseDir)
-	}
-
-	switch found[0] {
-	case "sh":
-		var e struct {
-			Sh Command `yaml:"sh"`
-		}
-		lines, err := decodeStruct(n, path, &e)
-		if err != nil {
-			return nil, err
-		}
-		if err := requireCommand(e.Sh, path, "sh", lines); err != nil {
-			return nil, err
-		}
-		return &Sh{e.Sh}, nil
-	case "server":
-		var e struct {
-			Server Command `yaml:"server"`
-		}
-		lines, err := decodeStruct(n, path, &e)
-		if err != nil {
-			return nil, err
-		}
-		if err := requireCommand(e.Server, path, "server", lines); err != nil {
-			return nil, err
-		}
-		return &Server{e.Server}, nil
-	default:
-		var e struct {
-			Python string `yaml:"python"`
-		}
-		lines, err := decodeStruct(n, path, &e)
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(e.Python) == "" {
-			return nil, &Error{Path: field(path, "python"), Line: lines["python"], Msg: "must not be empty"}
-		}
-		return &Python{Code: e.Python}, nil
-	}
-}
-
-func requireCommand(c Command, path, name string, lines map[string]int) error {
-	if c.Empty() {
-		return &Error{Path: field(path, name), Line: lines[name], Msg: "must not be empty"}
-	}
-	return nil
-}
-
-func decodeShot(n *yaml.Node, path, baseDir string) (Entry, error) {
-	var s Shot
-	lines, err := decodeStruct(n, path, &s)
+	var e Entry
+	lines, err := decodeStruct(n, path, &e)
 	if err != nil {
-		return nil, err
+		return e, err
 	}
-	if err := s.validate(path, n.Line, lines); err != nil {
-		return nil, err
+	if err := e.validate(path, resolve(n).Line, lines); err != nil {
+		return e, err
 	}
-	if s.Output != "" && s.Output != "-" && !filepath.IsAbs(s.Output) && baseDir != "" {
-		s.Output = filepath.Join(baseDir, s.Output)
+	if e.Output != "-" { // "-" is standard output, not a path
+		e.Output = against(baseDir, e.Output)
 	}
-	return &s, nil
+	if !strings.HasPrefix(e.JSFile, "gh:") {
+		e.JSFile = against(baseDir, e.JSFile)
+	}
+	return e, nil
 }
 
-func (s *Shot) validate(path string, line int, lines map[string]int) error {
+// against resolves a relative path against baseDir. An empty path, an empty
+// baseDir and an absolute path are all left alone.
+func against(baseDir, path string) string {
+	if path == "" || baseDir == "" || filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(baseDir, path)
+}
+
+func (e *Entry) validate(path string, line int, lines map[string]int) error {
 	c := &check{path: path, line: line, lines: lines}
-	if strings.TrimSpace(s.URL) == "" {
+	if c.present("sh") && e.Sh.Empty() {
+		c.fail("sh", "must not be empty")
+	}
+	if c.present("python") && strings.TrimSpace(e.Python) == "" {
+		c.fail("python", "must not be empty")
+	}
+	if c.present("server") && e.Server.Empty() {
+		c.fail("server", "must not be empty")
+	}
+	// A step-only entry needs no URL; anything else must ask for a screenshot.
+	step := c.present("sh") || c.present("python") || c.present("server")
+	if (!step || c.present("url")) && strings.TrimSpace(e.URL) == "" {
 		c.fail("url", "required")
 	}
-	if c.present("output") && strings.TrimSpace(s.Output) == "" {
+	if c.present("output") && strings.TrimSpace(e.Output) == "" {
 		c.fail("output", "must not be empty")
 	}
-	c.positive("width", s.Width)
-	c.positive("height", s.Height)
-	c.positive("timeout", s.Timeout)
-	c.nonNegative("wait", s.Wait)
-	c.nonNegative("padding", s.Padding)
+	c.positive("width", e.Width)
+	c.positive("height", e.Height)
+	c.positive("timeout", e.Timeout)
+	c.nonNegative("wait", e.Wait)
+	c.nonNegative("padding", e.Padding)
 	if c.present("scale_factor") {
-		if s.ScaleFactor <= 0 {
+		if e.ScaleFactor <= 0 {
 			c.fail("scale_factor", "must be positive")
 		}
-		if c.present("retina") {
+		if e.Retina {
 			c.fail("scale_factor", "cannot be combined with retina")
 		}
 	}
-	if c.present("quality") && (s.Quality < 1 || s.Quality > 100) {
+	if c.present("quality") && (e.Quality < 1 || e.Quality > 100) {
 		c.fail("quality", "must be between 1 and 100")
 	}
-	if s.Skip && s.Fail {
+	if e.Skip && e.Fail {
 		c.fail("fail", "cannot be combined with skip")
 	}
 	for _, group := range []struct {
 		names     []string
 		selectors StringList
 	}{
-		{[]string{"selectors", "selector"}, s.Selectors},
-		{[]string{"selectors_all", "selector_all"}, s.SelectorsAll},
-		{[]string{"js_selectors", "js_selector"}, s.JSSelectors},
-		{[]string{"js_selectors_all", "js_selector_all"}, s.JSSelectorsAll},
+		{[]string{"selectors", "selector"}, e.Selectors},
+		{[]string{"selectors_all", "selector_all"}, e.SelectorsAll},
+		{[]string{"js_selectors", "js_selector"}, e.JSSelectors},
+		{[]string{"js_selectors_all", "js_selector_all"}, e.JSSelectorsAll},
 	} {
 		for _, selector := range group.selectors {
 			if strings.TrimSpace(selector) == "" {
