@@ -440,3 +440,39 @@ func TestServerAddress(t *testing.T) {
 		})
 	}
 }
+
+// The browser is acquired once, before the first entry. An unreachable one ends
+// the run with the single real cause, rather than retrying — and orphaning a
+// launched Chrome — for every entry; a configuration with no shot in it never
+// reaches for one at all.
+func TestMultiAcquiresTheBrowserOnce(t *testing.T) {
+	t.Run("a failure ends the run", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		cfg := writeConfig(t, dir, `- url: http://localhost:1/
+  output: one.png
+- url: http://localhost:1/
+  output: two.png
+- url: http://localhost:1/
+  output: three.png
+`)
+		got := run(t, "multi", cfg, "--cdp-url", "http://"+freeAddr(t)+"/")
+		if got.code != exitFailure {
+			t.Fatalf("exit %d, want %d, stderr:\n%s", got.code, exitFailure, got.stderr)
+		}
+		if n := strings.Count(got.stderr, "connecting to"); n != 1 {
+			t.Errorf("tried to connect %d times, want once:\n%s", n, got.stderr)
+		}
+		if strings.Contains(got.stderr, "entries failed") {
+			t.Errorf("the one real cause was buried under per-entry failures:\n%s", got.stderr)
+		}
+	})
+	t.Run("a step-only configuration needs no browser", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Chdir(dir)
+		cfg := writeConfig(t, dir, "- sh: echo ran\n")
+		if got := run(t, "multi", cfg, "--cdp-url", "http://"+freeAddr(t)+"/"); got.code != exitOK {
+			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		}
+	})
+}

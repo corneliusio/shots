@@ -96,8 +96,8 @@ func (c *multiCmd) read(e *env) (*config.Multi, error) {
 }
 
 // batch is one run of a multi-shot configuration: the state that outlives a
-// single entry. One Chrome process serves every shot, and it is only started
-// when the first shot needs it.
+// single entry. One Chrome process serves every shot, started once before the
+// first entry, and only when the configuration has a shot in it.
 type batch struct {
 	cmd   *multiCmd
 	env   *env
@@ -125,11 +125,16 @@ type batch struct {
 // because everything after it was written expecting it to have run; a failed
 // shot is reported and the batch carries on, unless --fail-on-error.
 func (b *batch) run(ctx context.Context) error {
+	if slices.ContainsFunc(b.cfg.Entries, b.shoots) {
+		if err := b.start(ctx); err != nil {
+			return err
+		}
+	}
 	for i, entry := range b.cfg.Entries {
 		if err := b.steps(ctx, entry, b.cfg.Entries[i:]); err != nil {
 			return err
 		}
-		if entry.URL == "" || !b.wanted(entry) {
+		if !b.shoots(entry) {
 			continue
 		}
 		switch err := b.shot(ctx, entry); {
@@ -209,9 +214,27 @@ func (b *batch) command(c config.Command) process.Cmd {
 	return process.Cmd{Shell: c.Shell, Args: c.Args, Dir: b.cfg.BaseDir, Output: b.env.stderr}
 }
 
-// wanted reports whether --output asked for this entry's shot.
-func (b *batch) wanted(entry config.Entry) bool {
+// shoots reports whether this entry loads a page: it names a URL, and --output
+// did not filter it out.
+func (b *batch) shoots(entry config.Entry) bool {
+	if entry.URL == "" {
+		return false
+	}
 	return len(b.outputs) == 0 || slices.Contains(b.outputs, entry.Output)
+}
+
+// start connects to Chrome and creates the browser context every entry's page
+// is opened in, which is also where --auth is restored, once per run rather
+// than once per entry. It runs before the first entry, and only when the
+// configuration has a shot in it, so a step-only run never launches a browser.
+func (b *batch) start(ctx context.Context) error {
+	connected, err := browser.Connect(ctx, b.cmd.browserOptions())
+	if err != nil {
+		return err
+	}
+	b.browser = connected
+	b.bctx, err = connected.NewContext(ctx, b.state)
+	return err
 }
 
 // shot takes one entry's screenshot on a fresh page. When a HAR is being
@@ -291,20 +314,9 @@ func (b *batch) shot(ctx context.Context, entry config.Entry) error {
 	return b.cmd.emit(b.env, "Screenshot", target, output, bytes.NewReader(data), artifact.Options{NoClobber: b.cmd.NoClobber})
 }
 
-// page opens a fresh page for one entry. The first entry to need one connects
-// to Chrome and creates the browser context the whole batch shares, which is
-// also where --auth is restored, once per run rather than once per entry.
+// page opens a fresh page for one entry, in the browser context [batch.start]
+// created for the whole run.
 func (b *batch) page(ctx context.Context, entry config.Entry) (*browser.Page, error) {
-	if b.bctx == nil {
-		connected, err := browser.Connect(ctx, b.cmd.browserOptions())
-		if err != nil {
-			return nil, err
-		}
-		b.browser = connected
-		if b.bctx, err = connected.NewContext(ctx, b.state); err != nil {
-			return nil, err
-		}
-	}
 	width, height := entry.Width, entry.Height
 	if width == 0 {
 		width = defaultWidth
