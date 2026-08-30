@@ -52,6 +52,9 @@ type PageOptions struct {
 	Media string
 	// BypassCSP disables the page's Content-Security-Policy.
 	BypassCSP bool
+	// InitScript runs in every document the page loads, before the page's own
+	// scripts. It is how the recording cursor survives a navigation.
+	InitScript string
 	// Username and Password answer HTTP basic authentication challenges. They
 	// are sent only in response to a challenge, and never logged.
 	Username, Password string
@@ -123,6 +126,8 @@ type Page struct {
 	visited []string
 	// harFlushed stops new body fetches once the log has been read.
 	harFlushed bool
+	// onFrame receives screencast frames while a recording is running.
+	onFrame func(Frame)
 }
 
 // NewPage opens a page in the context. The caller must call [Page.Close].
@@ -223,6 +228,11 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 				return err
 			}
 		}
+		if opts.InitScript != "" {
+			if _, err := cdppage.AddScriptToEvaluateOnNewDocument(opts.InitScript).Do(c); err != nil {
+				return err
+			}
+		}
 		if opts.Username != "" || opts.Password != "" {
 			return fetch.Enable().WithHandleAuthRequests(true).Do(c)
 		}
@@ -281,6 +291,8 @@ func (p *Page) listen(opts PageOptions) {
 			if opts.HAR != nil {
 				opts.HAR.Failed(string(ev.RequestID), time.Now(), ev.ErrorText)
 			}
+		case *cdppage.EventScreencastFrame:
+			p.frame(ev)
 		case *cdppage.EventFrameNavigated:
 			p.visit(ev.Frame.SecurityOrigin)
 		case *runtime.EventConsoleAPICalled:

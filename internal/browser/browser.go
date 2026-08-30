@@ -38,6 +38,9 @@ type Options struct {
 	Headed bool
 	// DevTools opens developer tools, and implies Headed.
 	DevTools bool
+	// Window sizes the browser window at launch. Zero leaves Chrome's default.
+	// [Page.Fit] then trims it to an exact content size.
+	WindowWidth, WindowHeight int
 	// Timeout bounds navigation and script execution. Zero means
 	// [DefaultTimeout].
 	Timeout time.Duration
@@ -98,6 +101,9 @@ func execOptions(exe string, opts Options) []chromedp.ExecAllocatorOption {
 	}
 	if opts.DevTools {
 		out = append(out, chromedp.Flag("auto-open-devtools-for-tabs", true))
+	}
+	if opts.WindowWidth > 0 && opts.WindowHeight > 0 {
+		out = append(out, chromedp.WindowSize(opts.WindowWidth, opts.WindowHeight))
 	}
 	for _, arg := range opts.Args {
 		name, value, ok := splitArg(arg)
