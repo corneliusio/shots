@@ -197,14 +197,12 @@ func TestEncodeFailureLeavesNothing(t *testing.T) {
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Errorf("a failed encode left %s behind", out)
 	}
-	entries, err := os.ReadDir(dir)
+	temps, err := filepath.Glob(filepath.Join(dir, ".shots-*"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == "" && e.Name() != filepath.Base(r.Dir()) {
-			t.Errorf("a failed encode left %q behind", e.Name())
-		}
+	for _, temp := range temps {
+		t.Errorf("a failed encode left %q behind", filepath.Base(temp))
 	}
 }
 
