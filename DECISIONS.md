@@ -747,8 +747,11 @@ frame's own pixels where they are.
 **ffmpeg is required for any video, not only for `--mp4`.** Upstream gets its
 WebM from Playwright and needs ffmpeg only for the MP4 conversion, so its
 documented behaviour is "the WebM is still created but the command exits
-non-zero". Here the encoder is the whole output path, so a missing ffmpeg is
-reported before Chrome is launched — `doctor` already names it.
+non-zero". Here the encoder is the whole output path, so `video.RequireFFmpeg`
+runs in `videoCmd.Run` beside the `output:` checks — before the setup steps, the
+server, Chrome and every scene, because a run that cannot encode must not first
+execute a storyboard's side effects and throw minutes of recording away. That is
+the only lookup; `Encode` does not repeat it. `doctor` already names ffmpeg too.
 
 **Frames are spooled beside the output and removed on success.** The spool is
 `shots-frames-*` in the video's own directory, so it is on the same filesystem
