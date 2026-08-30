@@ -340,7 +340,9 @@ func (r *recording) waitFor(ctx context.Context, selector, pattern string) error
 }
 
 func (r *recording) screenshot(ctx context.Context, a config.Action) error {
-	shot := browser.ShotOptions{FullPage: a.FullPage}
+	// The output extension picks the format, as it does on shot and in a
+	// multi-shot configuration.
+	shot := browser.ShotOptions{FullPage: a.FullPage, JPEG: isJPEGPath(a.Output)}
 	if a.Selector != "" {
 		region, err := r.page.Region(ctx, browser.Selectors{CSS: []string{a.Selector}})
 		if err != nil {

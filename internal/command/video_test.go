@@ -2,6 +2,7 @@ package command
 
 import (
 	"encoding/json"
+	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,5 +327,39 @@ func TestResolveURL(t *testing.T) {
 				t.Errorf("resolveURL(%q, %q) = %q, want %q", tt.raw, tt.base, got, tt.want)
 			}
 		})
+	}
+}
+
+// A storyboard can finish before Chrome's first screencast frame would have
+// arrived on its own, so recording waits for one; and a screenshot picks its
+// format from the output extension, as shot and multi do.
+func TestVideoImmediateStoryboard(t *testing.T) {
+	needsFFmpeg(t)
+	srv := site(t)
+	dir := t.TempDir()
+	story := writeStoryboard(t, dir, `output: demo.webm
+url: `+srv.URL+`/storyboard.html
+viewport:
+  width: 640
+  height: 480
+scenes:
+- do:
+  - pause: 0
+  - screenshot: frame.jpg
+`)
+	got := run(t, "video", story)
+	if got.code != exitOK {
+		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+	}
+	if s := ffprobe(t, filepath.Join(dir, "demo.webm")).Streams[0]; s.Width != 640 || s.Height != 480 {
+		t.Errorf("stream = %dx%d, want 640x480", s.Width, s.Height)
+	}
+	f, err := os.Open(filepath.Join(dir, "frame.jpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, format, err := image.DecodeConfig(f); err != nil || format != "jpeg" {
+		t.Errorf("frame.jpg decoded as %q (%v), want jpeg", format, err)
 	}
 }
