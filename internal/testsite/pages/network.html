@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Network</title>
+    <link rel="stylesheet" href="/network.css" />
+  </head>
+  <body>
+    <h1 id="network">network</h1>
+    <script>
+      // One request per HAR case: a redirect chain, an HTTP error, and a
+      // connection that drops without a response. window.done goes true when
+      // all three have settled, so a test can wait for the traffic.
+      window.done = false;
+      (async () => {
+        for (const path of ['/redirect?to=/redirected.html', '/status/404', '/reset']) {
+          try {
+            await fetch(path);
+          } catch (error) {
+            // A dropped connection rejects; the HAR records the failure.
+          }
+        }
+        window.done = true;
+      })();
+    </script>
+  </body>
+</html>

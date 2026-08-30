@@ -45,11 +45,13 @@ type Options struct {
 // Where upstream would produce a bare extension (a hidden ".png" for a URL with
 // no usable host or path), this returns "shot" as the stem instead.
 func FilenameFor(rawURL, ext string) string {
-	return join(stemFor(rawURL), ext)
+	return join(Stem(rawURL), ext)
 }
 
-// stemFor derives the extension-less part of an automatic filename.
-func stemFor(rawURL string) string {
+// Stem derives the extension-less part of an automatic filename. It never
+// contains a path separator, so it is also the safe way to name a file after a
+// URL a page chose, as HAR resource extraction does.
+func Stem(rawURL string) string {
 	base := rawURL
 	if u, err := url.Parse(rawURL); err == nil {
 		base = u.Host + u.Path
@@ -108,7 +110,7 @@ func Path(output, rawURL, ext string) (string, error) {
 	if output != "" {
 		return output, nil
 	}
-	return Unique(stemFor(rawURL), ext)
+	return Unique(Stem(rawURL), ext)
 }
 
 // Write writes data to path. See [WriteStream].

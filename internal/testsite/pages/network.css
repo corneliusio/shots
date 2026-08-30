@@ -1,0 +1,4 @@
+/* A subresource with a body a HAR test can look for. */
+#network {
+  color: #336699;
+}
