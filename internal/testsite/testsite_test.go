@@ -50,6 +50,8 @@ func TestPages(t *testing.T) {
 		{"/transparent.html", "background: transparent"},
 		{"/geometry.html", `id="box-a"`},
 		{"/storage.html", "localStorage"},
+		{"/accessibility.html", `aria-pressed="true"`},
+		{"/print.html", "@media print"},
 	}
 	for _, p := range pages {
 		resp, body := get(t, client, base+p.path)

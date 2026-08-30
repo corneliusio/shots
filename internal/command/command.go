@@ -46,9 +46,13 @@ collides with one as "shots shot html" or "shots ./html".`
 
 // cli is the whole command surface.
 type cli struct {
-	Shot    shotCmd    `cmd:"" help:"Take a screenshot of a page or part of one."`
-	Install installCmd `cmd:"" help:"Download the pinned Chrome for Testing build."`
-	Doctor  doctorCmd  `cmd:"" help:"Report the browser and tools shots will use."`
+	Shot          shotCmd          `cmd:"" help:"Take a screenshot of a page or part of one."`
+	JavaScript    javascriptCmd    `cmd:"" name:"javascript" help:"Run JavaScript on a page and print the result."`
+	HTML          htmlCmd          `cmd:"" name:"html" help:"Print the rendered HTML of a page or an element."`
+	PDF           pdfCmd           `cmd:"" name:"pdf" help:"Print a page to PDF."`
+	Accessibility accessibilityCmd `cmd:"" help:"Print the accessibility tree of a page."`
+	Install       installCmd       `cmd:"" help:"Download the pinned Chrome for Testing build."`
+	Doctor        doctorCmd        `cmd:"" help:"Report the browser and tools shots will use."`
 
 	Version kong.VersionFlag `help:"Print the version and exit."`
 	Help    helpFlag         `help:"Show context-sensitive help."`

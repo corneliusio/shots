@@ -27,9 +27,15 @@ type result struct {
 // run invokes the whole CLI, exactly as main does.
 func run(t *testing.T, args ...string) result {
 	t.Helper()
+	return runStdin(t, "", args...)
+}
+
+// runStdin is [run] with something on standard input.
+func runStdin(t *testing.T, stdin string, args ...string) result {
+	t.Helper()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Main(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
+	code := Main(context.Background(), args, strings.NewReader(stdin), &stdout, &stderr)
 	return result{code: code, stdout: stdout.Bytes(), stderr: stderr.String()}
 }
 

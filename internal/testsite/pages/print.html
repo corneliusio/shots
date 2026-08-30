@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Print</title>
+    <style>
+      /* Three tall slabs fill several sheets of paper on screen, and none at
+         all in print media, so a PDF's page count reports which one was used. */
+      html, body { margin: 0; }
+      .slab { height: 5in; background: #cccccc; }
+      @media print { .slab { display: none; } }
+    </style>
+  </head>
+  <body>
+    <h1 id="print">print</h1>
+    <div class="slab"></div>
+    <div class="slab"></div>
+    <div class="slab"></div>
+  </body>
+</html>

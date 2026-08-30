@@ -45,6 +45,9 @@ type PageOptions struct {
 	UserAgent string
 	// ReducedMotion emulates prefers-reduced-motion: reduce.
 	ReducedMotion bool
+	// Media emulates a CSS media type, such as "screen" or "print". Empty
+	// leaves the page's own.
+	Media string
 	// BypassCSP disables the page's Content-Security-Policy.
 	BypassCSP bool
 	// Username and Password answer HTTP basic authentication challenges. They
@@ -162,9 +165,13 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 				return err
 			}
 		}
-		if opts.ReducedMotion {
-			features := []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}}
-			if err := emulation.SetEmulatedMedia().WithFeatures(features).Do(c); err != nil {
+		// One command carries both, because a second call replaces the first.
+		if opts.ReducedMotion || opts.Media != "" {
+			media := emulation.SetEmulatedMedia().WithMedia(opts.Media)
+			if opts.ReducedMotion {
+				media = media.WithFeatures([]*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}})
+			}
+			if err := media.Do(c); err != nil {
 				return err
 			}
 		}
@@ -301,15 +308,20 @@ func (p *Page) Wait(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Exec runs the caller's JavaScript. A source that evaluates to a function is
-// called, as Playwright's page.evaluate does, so both "document.title" and
-// "() => { ... }" behave as upstream users expect. The result is discarded;
-// only failure is reported.
-func (p *Page) Exec(ctx context.Context, source string) error {
+// Eval runs the caller's JavaScript and returns its result as JSON, or nil for
+// undefined and for an empty source.
+//
+// A source that evaluates to a function is called, as Playwright's
+// page.evaluate does, so both "document.title" and "() => { ... }" behave as
+// upstream users expect. Promises are awaited, at either step.
+func (p *Page) Eval(ctx context.Context, source string) (json.RawMessage, error) {
 	if strings.TrimSpace(source) == "" {
-		return nil
+		return nil, nil
 	}
-	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+	var value json.RawMessage
+	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+		// The first evaluation cannot ask for the value: a source that
+		// evaluates to a function has to come back as a handle to call.
 		result, exc, err := runtime.Evaluate(source).WithAwaitPromise(true).WithUserGesture(true).Do(c)
 		if err != nil {
 			return err
@@ -317,21 +329,30 @@ func (p *Page) Exec(ctx context.Context, source string) error {
 		if exc != nil {
 			return jsError(exc)
 		}
-		if result.Type != runtime.TypeFunction {
-			return nil
+		if result.ObjectID != "" {
+			body := "function() { return this; }"
+			if result.Type == runtime.TypeFunction {
+				body = "function() { return this(); }"
+			}
+			result, exc, err = runtime.CallFunctionOn(body).
+				WithObjectID(result.ObjectID).
+				WithAwaitPromise(true).
+				WithReturnByValue(true).
+				Do(c)
+			if err != nil {
+				return err
+			}
+			if exc != nil {
+				return jsError(exc)
+			}
 		}
-		_, exc, err = runtime.CallFunctionOn("function() { return this(); }").
-			WithObjectID(result.ObjectID).
-			WithAwaitPromise(true).
-			Do(c)
-		if err != nil {
-			return err
-		}
-		if exc != nil {
-			return jsError(exc)
-		}
+		value = json.RawMessage(result.Value)
 		return nil
 	}))
+	if err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 // WaitFor polls a JavaScript condition until it is truthy or the timeout
@@ -376,6 +397,46 @@ func (p *Page) eval(ctx context.Context, expr string, out any) error {
 		}
 		return json.Unmarshal(result.Value, out)
 	}))
+}
+
+// documentHTML serializes the rendered document the way Playwright's
+// page.content() does: the doctype, when there is one, then the document
+// element's markup.
+const documentHTML = `(() => {
+	const doctype = document.doctype;
+	const prefix = doctype ? new XMLSerializer().serializeToString(doctype) + '\n' : '';
+	return prefix + document.documentElement.outerHTML;
+})()`
+
+// elementHTML is the outer HTML of the first match, or null when nothing
+// matches, which the caller turns into an error.
+const elementHTML = `(() => {
+	const el = document.querySelector(%s);
+	return el && el.outerHTML;
+})()`
+
+// HTML returns the rendered document, or the outer HTML of the first element
+// matching selector.
+func (p *Page) HTML(ctx context.Context, selector string) (string, error) {
+	if selector == "" {
+		var html string
+		if err := p.eval(ctx, documentHTML, &html); err != nil {
+			return "", err
+		}
+		return html, nil
+	}
+	quoted, err := json.Marshal(selector)
+	if err != nil {
+		return "", err
+	}
+	var html *string
+	if err := p.eval(ctx, fmt.Sprintf(elementHTML, quoted), &html); err != nil {
+		return "", err
+	}
+	if html == nil {
+		return "", fmt.Errorf("no element matches %s", selector)
+	}
+	return *html, nil
 }
 
 func jsError(exc *runtime.ExceptionDetails) error {

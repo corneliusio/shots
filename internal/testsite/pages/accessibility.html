@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Accessibility</title>
+  </head>
+  <body>
+    <h1 id="heading">Accessibility</h1>
+    <button id="pressed" aria-pressed="true">Mute</button>
+    <button id="disabled" disabled>Send</button>
+    <input id="name" type="text" aria-label="Your name" value="Ada" required />
+    <input id="agree" type="checkbox" checked />
+    <div id="partly" role="checkbox" aria-checked="mixed" tabindex="0">Some toppings</div>
+    <p id="described">Ada Lovelace</p>
+    <a id="link" href="/index.html" aria-describedby="described">Home</a>
+    <div id="hidden" aria-hidden="true">not exposed</div>
+  </body>
+</html>
