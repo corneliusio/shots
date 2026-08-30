@@ -35,12 +35,15 @@ func usagef(format string, args ...any) error {
 // errSkipped reports that --skip suppressed the work. It is a success.
 var errSkipped = errors.New("skipped")
 
+// description is the help text, and the only place PLAN.md Section 7's
+// resolution rule is visible to users.
+const description = `Take automated screenshots with Chrome.
+
+shot is the default command, so "shots example.com" takes a screenshot. A first
+argument that names a command always selects that command: capture a host that
+collides with one as "shots shot html" or "shots ./html".`
+
 // cli is the whole command surface.
-//
-// shot is the default command and accepts arguments, so "shots example.com"
-// works, while a first argument that names a subcommand always selects that
-// subcommand. Capture a host that collides with one by naming the command
-// ("shots shot html") or by using a path ("shots ./html").
 type cli struct {
 	Shot    shotCmd    `cmd:"" help:"Take a screenshot of a page or part of one."`
 	Install installCmd `cmd:"" help:"Download the pinned Chrome for Testing build."`
@@ -79,7 +82,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 	exited := -1
 	parser, err := kong.New(&cli{},
 		kong.Name("shots"),
-		kong.Description("Take automated screenshots with Chrome."),
+		kong.Description(description),
 		kong.UsageOnError(),
 		kong.Writers(stdout, stderr),
 		kong.Exit(func(code int) {

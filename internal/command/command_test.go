@@ -2,8 +2,23 @@ package command
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
+
+// The resolution rule is only useful if users can read it: PLAN.md Section 7
+// requires --help to explain it.
+func TestHelpDocumentsTheResolutionRule(t *testing.T) {
+	got := run(t, "--help")
+	if got.code != exitOK {
+		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+	}
+	for _, want := range []string{"shot is the default command", "shots shot html", "shots ./html", "doctor", "install"} {
+		if !strings.Contains(string(got.stdout), want) {
+			t.Errorf("--help is missing %q:\n%s", want, got.stdout)
+		}
+	}
+}
 
 func TestResolve(t *testing.T) {
 	commands := []string{"shot", "install", "doctor"}
