@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/mostlyserious/shots/internal/browser"
 )
@@ -60,6 +61,9 @@ func (c *doctorCmd) checkBrowser(ctx context.Context, r *checks) {
 			return
 		}
 		r.line("browser", "%s", path)
+		if missing := browser.MissingLibraries(ctx, path); len(missing) > 0 {
+			r.problem("libraries", fmt.Errorf("%s needs shared libraries this machine does not have: %s", path, strings.Join(missing, ", ")))
+		}
 	} else {
 		r.line("browser", "%s (--cdp-url)", c.CDPURL)
 	}

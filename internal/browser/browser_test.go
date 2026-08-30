@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,21 @@ func TestDiscoverExplicitPath(t *testing.T) {
 			t.Fatal("a nonexistent browser was accepted")
 		}
 	})
+}
+
+func TestUnresolvedLibraries(t *testing.T) {
+	const ldd = "\tlinux-vdso.so.1 (0x00007fff)\n" +
+		"\tlibgbm.so.1 => not found\n" +
+		"\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f1a)\n" +
+		"\tlibnss3.so => not found\n"
+	got := unresolved(ldd)
+	want := []string{"libgbm.so.1", "libnss3.so"}
+	if !slices.Equal(got, want) {
+		t.Errorf("unresolved(...) = %q, want %q", got, want)
+	}
+	if got := unresolved("\tnot a dynamic executable\n"); got != nil {
+		t.Errorf("unresolved(...) = %q, want none", got)
+	}
 }
 
 func TestNotFoundErrorListsLocations(t *testing.T) {

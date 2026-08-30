@@ -2,7 +2,9 @@ package command
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/mostlyserious/shots/internal/browser"
 )
@@ -17,6 +19,15 @@ func (c *installCmd) Run(ctx context.Context, e *env) error {
 	if c.Silent {
 		progress = nil
 	}
-	_, err := browser.Install(ctx, c.Force, progress)
-	return err
+	exe, err := browser.Install(ctx, c.Force, progress)
+	if err != nil {
+		return err
+	}
+	// The archive carries no system dependencies, so a download can succeed and
+	// still leave a browser that cannot start. shots reports them and installs
+	// nothing (PLAN.md Section 5).
+	if missing := browser.MissingLibraries(ctx, exe); len(missing) > 0 {
+		return fmt.Errorf("%s needs shared libraries this machine does not have: %s", exe, strings.Join(missing, ", "))
+	}
+	return nil
 }

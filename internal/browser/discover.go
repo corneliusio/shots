@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -70,6 +71,35 @@ func Discover(path string) (string, error) {
 		}
 	}
 	return "", &NotFoundError{Checked: checked}
+}
+
+// MissingLibraries lists the shared libraries the browser at path needs but
+// that this machine does not have. Chrome for Testing archives carry no system
+// dependencies, so a bare Linux box can hold an installed browser that cannot
+// start; naming the libraries is more useful than the CDP timeout that follows.
+// shots never installs them (PLAN.md Section 11).
+//
+// It reports nothing on other platforms, or where ldd is unavailable.
+func MissingLibraries(ctx context.Context, path string) []string {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	// ldd exits non-zero for a file it cannot inspect, but reports unresolved
+	// libraries on stdout with status 0, so output decides, not the status.
+	out, _ := exec.CommandContext(ctx, "ldd", path).Output()
+	return unresolved(string(out))
+}
+
+// unresolved reads ldd output, whose missing entries read "libgbm.so.1 => not
+// found".
+func unresolved(ldd string) []string {
+	var missing []string
+	for line := range strings.Lines(ldd) {
+		if name, rest, ok := strings.Cut(line, "=>"); ok && strings.TrimSpace(rest) == "not found" {
+			missing = append(missing, strings.TrimSpace(name))
+		}
+	}
+	return missing
 }
 
 // executable reports whether path is a regular file this process may execute.
