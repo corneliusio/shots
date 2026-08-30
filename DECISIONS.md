@@ -221,6 +221,33 @@ than in a Go table means a version bump that moves the executable is a data
 change, and `tools/pin-chrome` verifies the path exists in the archive it just
 hashed, so the manifest cannot claim a path the archive does not have.
 
+**`$SHOTS_BROWSER_PATH` is read in exactly one place: `browser.Discover`.** An
+earlier revision also put `env:"SHOTS_BROWSER_PATH"` on `--browser-path`, which
+folded the variable into the explicit-path argument before discovery ran. That
+made two bugs and a dead branch: exporting the variable made `--cdp-url`
+impossible ("--cdp-url cannot be combined with --browser-path"), a variable
+pointing at a since-deleted browser hard-failed instead of falling through to
+steps 3-5 of PLAN.md Section 5's order, and `Discover`'s own step 2 became
+unreachable from the CLI. The flag help names the variable instead.
+
+**Mutually exclusive flags are checked where the flags live.** `--cdp-url`
+against `--browser-path`, `--browser-arg`, `--interactive` and `--devtools` is a
+Section 8 validation, and PLAN.md Section 10 gives that class exit status 2, so
+the check returns `usagef` from `shotCmd.validate` and `doctorCmd.Run`, like
+every other flag conflict. It used to live in `browser.Options.validate`, which
+returned a plain error (status 1) and hardcoded CLI flag spellings inside the
+browser package. `doctor` repeats the one condition it can violate rather than
+embedding `browserFlags`, whose other seven flags it does not accept.
+
+**Missing Linux shared libraries are reported by running `ldd`.**
+`browser.MissingLibraries` returns the libraries `ldd` marks "not found", and
+nothing at all off Linux or where `ldd` is absent. `shots install` fails with
+them once extraction succeeds, and `doctor` reports them as a problem: a Chrome
+for Testing archive carries no system dependencies, so both commands can
+otherwise report success on a bare container and leave the first launch to fail
+with an opaque CDP timeout. Only `ldd` is consulted; a library present but too
+old is left to Chrome to complain about.
+
 **`doctor` writes its report to stdout and exits 1 on any problem.** The report
 is what the command was asked for, which is what PLAN.md Section 10 reserves
 stdout for. A missing `ffmpeg` or Python is reported with what it would have
