@@ -510,6 +510,14 @@ fails immediately if the server exits first, and gives up after 30 seconds. A
 configuration with no URL after its server gets no wait: there is nothing to
 dial, and inventing a fixed sleep would be worse than the honest nothing.
 
+The search runs each URL through `NormalizeURL` first, so `url: localhost:8000/`
+is waited for exactly like `url: http://localhost:8000/`; whether a server is
+waited for must not depend on a spelling shots itself normalizes away. It also
+stops at the next `server:` entry, because the URLs beyond it belong to a server
+that has not been started yet — `start everything, then shoot` is a normal
+layout, and scanning past would make the first server wait 30 seconds for a port
+only the second one will ever open.
+
 **A failed step stops the batch; a failed shot is reported and the batch carries
 on.** That split is PLAN.md Section 7's ("stop after a failed shell or Python
 step") and upstream's: everything after a step was written expecting it to have
@@ -576,6 +584,22 @@ stops a server. Signalling the group rather than the process is the point: a
 server, and a direct kill would leave them running — which the interrupt test
 asserts by watching a grandchild's process id.
 
+**A step's group is stopped when the step succeeds, too.** `sh: something &`
+leaves the backgrounded process in the step's group, and returning without
+signalling it is exactly the leak the groups exist to prevent. `Run` therefore
+waits for the child, then runs the same `Stop` the cancelled path runs. Upstream
+leaves such a process running; a batch tool that quietly accumulates orphans is
+the worse behaviour, and `server:` is how a configuration says "keep this
+running".
+
+**`--leave-server` needs an explicit detach, not just a skipped `Stop`.** On
+Unix a process group outlives the process that made it, so leaving a server
+alone is enough; on Windows the job object carries `KILL_ON_JOB_CLOSE`, and the
+handle is closed by the OS when shots exits whether or not shots closes it, so
+skipping `Stop` would still take the server down. `Server.Detach` clears the
+job's limit flags before releasing the handle, and is a no-op on Unix. It is
+compiled and vetted for Windows here but exercised only by CI's Windows runner.
+
 **Windows terminates the job outright; there is no graceful phase there.**
 PLAN.md Section 9 anticipates this: console processes have no SIGTERM
 equivalent, so `terminate` and `kill` are both `TerminateJobObject`, the
@@ -585,11 +609,16 @@ which was already in the module graph through chromedp and is now a direct
 dependency; it is compiled and vetted for Windows here but exercised only by
 CI's Windows runner.
 
-**Reaping is bounded by `WaitDelay`.** A child's output goes through a pipe, and
-anything the child leaves running inherits it, so `cmd.Wait` can outlive the
-child by as long as its orphans live. `WaitDelay` closes the pipe after the same
-five seconds and reports `ErrWaitDelay`, which means "output left open", not a
-command that failed, so it is not turned into an error.
+**The child's output pipe belongs to `process`, not to `os/exec`.** A child's
+output goes through a pipe that anything it starts inherits, and `os/exec`'s
+`Wait` waits for every copy of the write end to close — so a step that
+backgrounds a process would not be reaped until that process exited, five
+seconds later with `WaitDelay` and never without. `Start` therefore hands the
+child an `os.Pipe` it owns and copies from it in a goroutine, which leaves
+`Wait` waiting for nothing but the process. Two signals come out of that: the
+child has exited, and the group has released the pipe. Cleanup waits for the
+second, bounded by `Grace`, which is what makes the grace period cover the group
+rather than only the direct child.
 
 **The CLI subprocess tests build the real binary, and the test binary plays the
 children.** Signal handling lives in `cmd/shots/main.go`; a test that installed
