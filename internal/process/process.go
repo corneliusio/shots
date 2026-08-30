@@ -46,33 +46,38 @@ func (c Cmd) label() string {
 	return line
 }
 
-// Run runs c to completion. Cancelling ctx stops the child's whole process
-// group and returns ctx's error, with any cleanup error joined to it rather
-// than hiding either one.
+// Run runs c to completion and then stops whatever it left behind: a step that
+// backgrounded a process keeps that process in the step's group, and leaving it
+// running is the leak process groups exist to prevent. Cancelling ctx stops the
+// group early and returns ctx's error, with any cleanup error joined to it
+// rather than hiding either one.
 func Run(ctx context.Context, c Cmd) error {
 	s, err := Start(c)
 	if err != nil {
 		return err
 	}
 	select {
-	case <-s.done:
-		s.tree.close()
+	case <-s.exited:
+		stopped := s.Stop()
 		if s.err != nil {
 			return fmt.Errorf("%s: %w", s.label, s.err)
 		}
-		return nil
+		return stopped
 	case <-ctx.Done():
 		return errors.Join(ctx.Err(), s.Stop())
 	}
 }
 
 // Server is a command running in the background. The caller must call
-// [Server.Stop] exactly once.
+// [Server.Stop] or [Server.Detach] exactly once.
 type Server struct {
 	label string
 	tree  *tree
-	done  chan struct{}
-	// err is the child's exit status, valid once done is closed.
+	// exited is closed once the child itself has been reaped; done once
+	// everything in its group has released its output too.
+	exited chan struct{}
+	done   chan struct{}
+	// err is the child's exit status, valid once exited is closed.
 	err error
 }
 
@@ -88,29 +93,59 @@ func Start(c Cmd) (*Server, error) {
 		return nil, errors.New("empty command")
 	}
 	cmd.Dir = c.Dir
-	// One writer for both streams: os/exec gives them the same pipe, so the
-	// child's output cannot interleave mid-line with itself.
-	cmd.Stdout, cmd.Stderr = c.Output, c.Output
 
-	s := &Server{label: c.label(), done: make(chan struct{})}
+	s := &Server{label: c.label(), exited: make(chan struct{}), done: make(chan struct{})}
+	// The child writes into a pipe this process owns rather than one os/exec
+	// owns, because os/exec's Wait also waits for every inherited copy of the
+	// write end to close: a step that backgrounds a process would not be
+	// reaped until that process exited too. One writer for both streams keeps
+	// the child's output from interleaving with itself. copied is closed once
+	// everything holding the write end has let go.
+	var w *os.File
+	copied := make(chan struct{})
+	close(copied)
+	if c.Output != nil {
+		r, pipe, err := os.Pipe()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", s.label, err)
+		}
+		w, copied = pipe, make(chan struct{})
+		cmd.Stdout, cmd.Stderr = w, w
+		go func() {
+			defer close(copied)
+			defer r.Close()
+			io.Copy(c.Output, r)
+		}()
+	}
+	// fail releases the pipe and drains the copier, so a caller that gets only
+	// an error still sees what the child managed to write, and no goroutine
+	// outlives the failure.
+	fail := func(err error) (*Server, error) {
+		if w != nil {
+			w.Close()
+		}
+		<-copied
+		return nil, fmt.Errorf("%s: %w", s.label, err)
+	}
+
 	t, err := newTree(cmd)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", s.label, err)
+		return fail(err)
 	}
 	s.tree = t
 	if err := cmd.Start(); err != nil {
 		t.close()
-		return nil, fmt.Errorf("%s: %w", s.label, err)
+		return fail(err)
 	}
-	// Anything the child leaves running inherits the pipe its output goes
-	// through, so reaping can outlast the child itself. WaitDelay bounds that
-	// wait; the ErrWaitDelay it then reports means "output left open", not a
-	// command that failed.
-	cmd.WaitDelay = Grace
+	// The child owns the write end now.
+	if w != nil {
+		w.Close()
+		w = nil
+	}
 	go func() {
-		if err := cmd.Wait(); !errors.Is(err, exec.ErrWaitDelay) {
-			s.err = err
-		}
+		s.err = cmd.Wait()
+		close(s.exited)
+		<-copied
 		close(s.done)
 	}()
 	if err := t.attach(cmd); err != nil {
@@ -119,7 +154,7 @@ func Start(c Cmd) (*Server, error) {
 		cmd.Process.Kill()
 		<-s.done
 		t.close()
-		return nil, fmt.Errorf("%s: %w", s.label, err)
+		return fail(err)
 	}
 	return s, nil
 }
@@ -132,14 +167,31 @@ func (s *Server) Stop() error {
 	// The group is signalled even when the direct child has already exited:
 	// what it started keeps the group, and may still be running.
 	err := s.tree.terminate()
-	select {
-	case <-s.done:
+	if s.settled(Grace) {
 		return err
-	case <-time.After(Grace):
 	}
 	err = errors.Join(err, s.tree.kill())
-	<-s.done
+	s.settled(Grace)
 	return err
+}
+
+// Detach gives up the server without stopping it, which is what --leave-server
+// asks for. On Windows it also has to clear the job object's kill-on-close
+// limit, or the server would die with shots.
+func (s *Server) Detach() error { return s.tree.detach() }
+
+// settled reports whether the group has exited and released the child's output
+// within d. The wait is bounded: something that escaped both signals must not
+// hold up the rest of the cleanup.
+func (s *Server) settled(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-s.done:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // Ready waits until addr accepts a TCP connection, which is as close as a
@@ -154,7 +206,7 @@ func (s *Server) Ready(ctx context.Context, addr string, timeout time.Duration) 
 			return nil
 		}
 		select {
-		case <-s.done:
+		case <-s.exited:
 			return fmt.Errorf("%s: exited before %s answered%s", s.label, addr, exit(s.err))
 		case <-ctx.Done():
 			return ctx.Err()

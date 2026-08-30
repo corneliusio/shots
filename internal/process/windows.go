@@ -62,7 +62,26 @@ func (t *tree) terminate() error {
 }
 
 func (t *tree) kill() error { return t.terminate() }
-func (t *tree) close()      { windows.CloseHandle(t.job) }
+
+func (t *tree) close() {
+	if t.job != 0 {
+		windows.CloseHandle(t.job)
+		t.job = 0
+	}
+}
+
+// detach clears kill-on-close before releasing the job, because the handle is
+// closed either way when shots exits and closing it while the limit stands
+// would terminate the very server --leave-server preserves.
+func (t *tree) detach() error {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if _, err := windows.SetInformationJobObject(t.job, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
+		return fmt.Errorf("detaching job object: %w", err)
+	}
+	t.close()
+	return nil
+}
 
 // shellCmd runs a command line through cmd.exe. The line is placed in the
 // command line verbatim: cmd.exe parses its own arguments, and Go's quoting

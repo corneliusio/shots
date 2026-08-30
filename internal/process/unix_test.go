@@ -53,6 +53,31 @@ func TestRunCancelledKillsTheGroup(t *testing.T) {
 	waitForExit(t, "the grandchild", grandchild)
 }
 
+// TestRunKillsTheGroup covers the step that succeeds: a shell that exits after
+// backgrounding something leaves that something in the step's group, and Run
+// must neither leave it running nor wait around for it.
+func TestRunKillsTheGroup(t *testing.T) {
+	dir := t.TempDir()
+	pids := filepath.Join(dir, "pids")
+	var out strings.Builder
+	start := time.Now()
+	err := Run(t.Context(), Cmd{
+		Shell:  "sleep 60 & echo $$ $! > " + pids + "; echo done",
+		Output: &out,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > Grace {
+		t.Errorf("Run took %s, want it to return with the child", elapsed)
+	}
+	if got := strings.TrimSpace(out.String()); got != "done" {
+		t.Errorf("output = %q, want %q", got, "done")
+	}
+	_, grandchild := waitForPIDs(t, pids)
+	waitForExit(t, "the backgrounded process", grandchild)
+}
+
 // waitForPIDs reads the two process ids the shell reports, once it has written
 // them.
 func waitForPIDs(t *testing.T, path string) (int, int) {
