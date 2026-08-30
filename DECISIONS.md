@@ -252,3 +252,15 @@ old is left to Chrome to complain about.
 is what the command was asked for, which is what PLAN.md Section 10 reserves
 stdout for. A missing `ffmpeg` or Python is reported with what it would have
 been needed for and is not a problem: neither is required for `shot`.
+
+**One lock guards both output streams, so callbacks can just write.** CDP event
+callbacks run on the connection's read goroutine while the main goroutine writes
+progress lines, prompts and image data, and the two streams are frequently the
+same file or, in tests, the same buffer. `env` therefore wraps stdout and stderr
+in a `syncWriter` pair over a single mutex, and every writer -- kong, `progress`,
+`artifact.Write`, `--log-console`, `--log-requests -` -- goes through it. That
+replaced a per-callback mutex in `requestLog`, which serialized the request log
+only against itself and left `--log-console` and the image on stdout unguarded.
+`requestLog` now keeps only the file closer: `json.Encoder` emits a record per
+`Write`, and an `*os.File` rejects a write that arrives after `Close` rather than
+racing it, so its `bufio.Writer` and flush-under-lock went away too.

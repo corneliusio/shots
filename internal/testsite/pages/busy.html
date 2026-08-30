@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Busy</title>
+  </head>
+  <body>
+    <h1 id="busy">busy</h1>
+    <script>
+      // Console and network events keep arriving after load, so a client that
+      // logs them writes from its event loop while it is also capturing.
+      setInterval(() => {
+        console.log('tick');
+        fetch('/index.html');
+      }, 5);
+    </script>
+  </body>
+</html>

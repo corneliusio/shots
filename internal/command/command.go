@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sync"
 
 	"github.com/alecthomas/kong"
 )
@@ -67,16 +68,43 @@ func (helpFlag) BeforeReset(kctx *kong.Context) error {
 
 // env carries the streams a command reads and writes, so tests can drive the
 // whole CLI without touching the process.
+//
+// Browser event callbacks log from the connection's read goroutine while the
+// main goroutine is writing progress lines or image data, so both streams are
+// wrapped in [syncWriter] over one lock: the two often are the same terminal,
+// and a test's stdout and stderr are often the same buffer.
 type env struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
 }
 
+func newEnv(stdin io.Reader, stdout, stderr io.Writer) *env {
+	mu := new(sync.Mutex)
+	return &env{
+		stdin:  stdin,
+		stdout: &syncWriter{mu: mu, w: stdout},
+		stderr: &syncWriter{mu: mu, w: stderr},
+	}
+}
+
+// syncWriter serializes writes to a stream against every other writer sharing
+// its lock.
+type syncWriter struct {
+	mu *sync.Mutex
+	w  io.Writer
+}
+
+func (s *syncWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.w.Write(p)
+}
+
 // Main parses args and runs the selected command, returning the process exit
 // status. It never calls os.Exit.
 func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	e := &env{stdin: stdin, stdout: stdout, stderr: stderr}
+	e := newEnv(stdin, stdout, stderr)
 	// kong reports --help and --version by calling Exit; recording the code
 	// instead lets parsing unwind normally.
 	exited := -1
@@ -84,7 +112,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		kong.Name("shots"),
 		kong.Description(description),
 		kong.UsageOnError(),
-		kong.Writers(stdout, stderr),
+		kong.Writers(e.stdout, e.stderr),
 		kong.Exit(func(code int) {
 			if exited < 0 {
 				exited = code
@@ -96,7 +124,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		kong.NoDefaultHelp(),
 	)
 	if err != nil {
-		fmt.Fprintln(stderr, "shots:", err)
+		fmt.Fprintln(e.stderr, "shots:", err)
 		return exitFailure
 	}
 	kctx, err := parser.Parse(resolve(args, commandNames(parser)))
@@ -107,7 +135,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		parser.Errorf("%s", err)
 		return exitUsage
 	}
-	return report(stderr, kctx.Run())
+	return report(e.stderr, kctx.Run())
 }
 
 // commandNames lists the top-level subcommands.

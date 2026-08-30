@@ -406,6 +406,27 @@ func TestShotLogging(t *testing.T) {
 			t.Errorf("no entry for the document in:\n%s", data)
 		}
 	})
+
+	// /busy.html keeps logging and fetching, so events land while the main
+	// goroutine is writing the progress line and the image. Under -race these
+	// catch a callback that writes to a stream without synchronization.
+	t.Run("console logging does not race the progress line", func(t *testing.T) {
+		out := filepath.Join(t.TempDir(), "shot.png")
+		got := run(t, srv.URL+"/busy.html", "--height", "100", "--log-console", "-o", out)
+		if got.code != 0 {
+			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		}
+	})
+
+	t.Run("the request log and the image share standard output", func(t *testing.T) {
+		got := run(t, srv.URL+"/busy.html", "--height", "100", "--log-requests", "-", "-o", "-")
+		if got.code != 0 {
+			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		}
+		if !bytes.Contains(got.stdout, []byte("\x89PNG")) || !bytes.Contains(got.stdout, []byte(`"method":"GET"`)) {
+			t.Errorf("stdout = %q, want both the image and request lines", got.stdout)
+		}
+	})
 }
 
 func TestShotRedirect(t *testing.T) {

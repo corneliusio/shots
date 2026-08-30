@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mostlyserious/shots/internal/artifact"
@@ -265,12 +264,17 @@ func (c *shotCmd) consoleLog(e *env) func(browser.Message) {
 
 // requestLog opens the --log-requests destination and returns a callback that
 // writes one JSON object per completed request, plus its closer.
+//
+// The callback runs on a browser event goroutine, which can still deliver an
+// event while the page is closing. Writing straight to the destination keeps
+// that safe: an [encoding/json.Encoder] emits each record in a single Write,
+// e.stdout serializes those against the main goroutine, and an *os.File tosses
+// out a write that arrives after Close instead of racing it.
 func (c *shotCmd) requestLog(e *env) (func(browser.Request), func(), error) {
 	if c.LogRequests == "" {
 		return nil, func() {}, nil
 	}
-	var w io.Writer = e.stdout
-	closer := func() {}
+	w, closer := e.stdout, func() {}
 	if c.LogRequests != artifact.Stdout {
 		f, err := os.Create(c.LogRequests)
 		if err != nil {
@@ -278,26 +282,8 @@ func (c *shotCmd) requestLog(e *env) (func(browser.Request), func(), error) {
 		}
 		w, closer = f, func() { f.Close() }
 	}
-	buffered := bufio.NewWriter(w)
-	enc := json.NewEncoder(buffered)
-	// The callback runs on a CDP event goroutine, which can still deliver an
-	// event while the page is closing, so writes are serialized and stop once
-	// the log is closed.
-	var mu sync.Mutex
-	closed := false
-	return func(r browser.Request) {
-			mu.Lock()
-			defer mu.Unlock()
-			if !closed {
-				enc.Encode(r)
-			}
-		}, func() {
-			mu.Lock()
-			defer mu.Unlock()
-			closed = true
-			buffered.Flush()
-			closer()
-		}, nil
+	enc := json.NewEncoder(w)
+	return func(r browser.Request) { enc.Encode(r) }, closer, nil
 }
 
 func isJPEGPath(path string) bool {

@@ -44,6 +44,7 @@ func TestPages(t *testing.T) {
 		{"/redirected.html", `id="redirected"`},
 		{"/delayed.html", `id="immediate"`},
 		{"/console.html", "console.warn"},
+		{"/busy.html", "setInterval"},
 		{"/promise.html", "shotsPromise"},
 		{"/jserror.html", "uncaught on purpose"},
 		{"/transparent.html", "background: transparent"},
