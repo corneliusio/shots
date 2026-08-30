@@ -64,6 +64,8 @@ type Page struct {
 	browser   *Browser
 	contextID cdp.BrowserContextID
 	timeout   time.Duration
+	// mainFrame is written once, before any event listener exists, and read
+	// only afterwards.
 	mainFrame cdp.FrameID
 
 	mu sync.Mutex
@@ -91,12 +93,31 @@ func (b *Browser) NewPage(ctx context.Context, opts PageOptions) (*Page, error) 
 		p.Close()
 		return nil, fmt.Errorf("attaching to page: %w", err)
 	}
+	// The main frame is resolved before any listener exists, so the event
+	// goroutine that reads it never races the assignment.
+	if err := p.resolveMainFrame(ctx); err != nil {
+		p.Close()
+		return nil, err
+	}
 	p.listen(opts)
 	if err := p.configure(ctx, opts); err != nil {
 		p.Close()
 		return nil, err
 	}
 	return p, nil
+}
+
+// resolveMainFrame records the target's own frame, which is the one whose
+// document response carries the navigation's HTTP status.
+func (p *Page) resolveMainFrame(ctx context.Context) error {
+	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+		tree, err := cdppage.GetFrameTree().Do(c)
+		if err != nil {
+			return err
+		}
+		p.mainFrame = tree.Frame.ID
+		return nil
+	}))
 }
 
 // Close closes the page and disposes its browser context.
@@ -126,11 +147,6 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 		if err := runtime.Enable().Do(c); err != nil {
 			return err
 		}
-		tree, err := cdppage.GetFrameTree().Do(c)
-		if err != nil {
-			return err
-		}
-		p.mainFrame = tree.Frame.ID
 		if opts.Width > 0 || opts.Height > 0 || opts.ScaleFactor > 0 {
 			scale := opts.ScaleFactor
 			if scale <= 0 {
