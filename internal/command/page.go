@@ -48,6 +48,8 @@ func (f browserFlags) validate() error {
 // pageFlags are the options every command that loads a page accepts. The
 // lifecycle they drive is [pageFlags.open].
 type pageFlags struct {
+	Auth string `short:"a" placeholder:"FILE" help:"Restore cookies and local storage from this authentication state file."`
+
 	JavaScript string `short:"j" name:"javascript" placeholder:"CODE" help:"JavaScript to run on the page."`
 	JSFile     string `name:"js-file" placeholder:"FILE" help:"Read the JavaScript from this file, - for standard input, or gh:user/script.js."`
 
@@ -99,6 +101,10 @@ func (f pageFlags) validate() error {
 // [errSkipped] that --skip reports — everything opened is closed again; on
 // success the caller must call the returned function.
 func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts browser.PageOptions) (*browser.Page, func(), error) {
+	state, err := loadState(f.Auth)
+	if err != nil {
+		return nil, nil, err
+	}
 	b, err := browser.Connect(ctx, browser.Options{
 		Path:     f.BrowserPath,
 		CDPURL:   f.CDPURL,
@@ -110,6 +116,7 @@ func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts
 	if err != nil {
 		return nil, nil, err
 	}
+	opts.State = state
 	opts.UserAgent = f.UserAgent
 	opts.ReducedMotion = f.ReducedMotion
 	opts.BypassCSP = f.BypassCSP

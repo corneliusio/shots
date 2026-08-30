@@ -1,0 +1,48 @@
+{
+  "cookies": [
+    {
+      "name": "session",
+      "value": "s3cr3t",
+      "domain": "example.com",
+      "path": "/",
+      "expires": 1767225600.123456,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "csrf",
+      "value": "token",
+      "domain": ".example.com",
+      "path": "/app",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "None"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://example.com",
+      "localStorage": [
+        {
+          "name": "token",
+          "value": "t-1"
+        },
+        {
+          "name": "theme",
+          "value": "dark"
+        }
+      ]
+    },
+    {
+      "origin": "https://other.example.com",
+      "localStorage": [
+        {
+          "name": "seen",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

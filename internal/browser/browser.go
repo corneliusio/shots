@@ -206,22 +206,35 @@ func (b *Browser) executor(ctx context.Context) context.Context {
 // chromedp does not set it.
 func (b *Browser) newTarget(ctx context.Context) (cdp.BrowserContextID, target.ID, error) {
 	var contextID cdp.BrowserContextID
+	err := b.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+		var err error
+		contextID, err = target.CreateBrowserContext().Do(b.executor(c))
+		return err
+	}))
+	if err != nil {
+		return "", "", err
+	}
+	targetID, err := b.newTargetIn(ctx, contextID)
+	if err != nil {
+		b.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+			return target.DisposeBrowserContext(contextID).Do(b.executor(c))
+		}))
+		return "", "", err
+	}
+	return contextID, targetID, nil
+}
+
+// newTargetIn opens another page in an existing browser context, so it shares
+// that context's cookies and storage.
+func (b *Browser) newTargetIn(ctx context.Context, contextID cdp.BrowserContextID) (target.ID, error) {
 	var targetID target.ID
 	err := b.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-		ex := b.executor(c)
 		var err error
-		if contextID, err = target.CreateBrowserContext().Do(ex); err != nil {
-			return err
-		}
 		targetID, err = target.CreateTarget("about:blank").
 			WithBrowserContextID(contextID).
 			WithNewWindow(true).
-			Do(ex)
-		if err != nil {
-			target.DisposeBrowserContext(contextID).Do(ex)
-			return err
-		}
-		return nil
+			Do(b.executor(c))
+		return err
 	}))
-	return contextID, targetID, err
+	return targetID, err
 }

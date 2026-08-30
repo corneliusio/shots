@@ -17,6 +17,7 @@ import (
 	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+	"github.com/mostlyserious/shots/internal/har"
 )
 
 // Message is one console message.
@@ -58,6 +59,12 @@ type PageOptions struct {
 	// not block.
 	OnConsole func(Message)
 	OnRequest func(Request)
+	// HAR, when set, records every request the page makes. The caller reads
+	// the log after [Page.FlushHAR].
+	HAR *har.Recorder
+	// State, when set, is restored into the page's browser context before
+	// anything is loaded: cookies directly, local storage per origin.
+	State *State
 }
 
 // Page is one tab in its own isolated browser context.
@@ -71,11 +78,16 @@ type Page struct {
 	// only afterwards.
 	mainFrame cdp.FrameID
 
+	// bodies counts the HAR response bodies still being fetched.
+	bodies sync.WaitGroup
+
 	mu sync.Mutex
 	// docStatus is the HTTP status of the main frame's most recent document
 	// response, which is the top-level navigation's final response.
 	docStatus int64
 	pending   map[network.RequestID]*Request
+	// harFlushed stops new body fetches once the log has been read.
+	harFlushed bool
 }
 
 // NewPage opens a page in a fresh isolated browser context, so cookies and
@@ -104,6 +116,12 @@ func (b *Browser) NewPage(ctx context.Context, opts PageOptions) (*Page, error) 
 	}
 	p.listen(opts)
 	if err := p.configure(ctx, opts); err != nil {
+		p.Close()
+		return nil, err
+	}
+	// Step 5 of PLAN.md Section 6's lifecycle: state is restored before the
+	// caller navigates, so the first request already carries it.
+	if err := b.restore(ctx, contextID, opts.State); err != nil {
 		p.Close()
 		return nil, err
 	}
@@ -144,7 +162,11 @@ func (p *Page) run(ctx context.Context, actions ...chromedp.Action) error {
 
 func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-		if err := network.Enable().Do(c); err != nil {
+		enable := network.Enable()
+		if opts.HAR != nil {
+			enable = enable.WithMaxTotalBufferSize(maxTotalBufferSize).WithMaxResourceBufferSize(maxResourceBufferSize)
+		}
+		if err := enable.Do(c); err != nil {
 			return err
 		}
 		if err := runtime.Enable().Do(c); err != nil {
@@ -199,6 +221,15 @@ func (p *Page) listen(opts PageOptions) {
 				p.pending[ev.RequestID] = &Request{Method: ev.Request.Method, URL: ev.Request.URL}
 				p.mu.Unlock()
 			}
+			if opts.HAR != nil {
+				id := string(ev.RequestID)
+				// A redirect reuses the request id, so the entry it ends
+				// closes before the next one opens.
+				if ev.RedirectResponse != nil {
+					opts.HAR.Redirect(id, ev.WallTime.Time(), harResponse(ev.RedirectResponse), harTimings(ev.RedirectResponse.Timing))
+				}
+				opts.HAR.Sent(id, ev.WallTime.Time(), harRequest(ev.Request))
+			}
 		case *network.EventResponseReceived:
 			p.mu.Lock()
 			if ev.Type == network.ResourceTypeDocument && ev.FrameID == p.mainFrame {
@@ -209,15 +240,25 @@ func (p *Page) listen(opts PageOptions) {
 				r.URL = ev.Response.URL
 			}
 			p.mu.Unlock()
+			if opts.HAR != nil {
+				resp := harResponse(ev.Response)
+				opts.HAR.Received(string(ev.RequestID), resp, harTimings(ev.Response.Timing))
+			}
 		case *network.EventLoadingFinished:
 			if r := p.finish(ev.RequestID); r != nil {
 				size := int64(ev.EncodedDataLength)
 				r.Size = &size
 				opts.OnRequest(*r)
 			}
+			if opts.HAR != nil {
+				p.captureBody(opts.HAR, ev)
+			}
 		case *network.EventLoadingFailed:
 			if r := p.finish(ev.RequestID); r != nil {
 				opts.OnRequest(*r)
+			}
+			if opts.HAR != nil {
+				opts.HAR.Failed(string(ev.RequestID), time.Now(), ev.ErrorText)
 			}
 		case *runtime.EventConsoleAPICalled:
 			if opts.OnConsole != nil {

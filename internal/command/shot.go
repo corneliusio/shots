@@ -10,6 +10,7 @@ import (
 
 	"github.com/mostlyserious/shots/internal/artifact"
 	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/mostlyserious/shots/internal/har"
 )
 
 type shotCmd struct {
@@ -34,6 +35,7 @@ type shotCmd struct {
 
 	LogRequests string `placeholder:"FILE" help:"Write one JSON object per network request to this file, or - for standard output."`
 
+	harFlags
 	pageFlags
 }
 
@@ -65,11 +67,21 @@ func (c *shotCmd) Run(ctx context.Context, e *env) error {
 	}
 	defer closeRequests()
 
+	harPath, harZip, err := c.harFlags.path()
+	if err != nil {
+		return err
+	}
+	var recorder *har.Recorder
+	if harPath != "" {
+		recorder = har.NewRecorder(Version)
+	}
+
 	page, closer, err := c.open(ctx, e, target, script, browser.PageOptions{
 		Width:       c.Width,
 		Height:      c.viewportHeight(),
 		ScaleFactor: c.scaleFactor(),
 		OnRequest:   requests,
+		HAR:         recorder,
 	})
 	if err != nil {
 		return err
@@ -94,7 +106,13 @@ func (c *shotCmd) Run(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
-	return c.emit(e, "Screenshot", target, output, bytes.NewReader(data), artifact.Options{NoClobber: c.NoClobber})
+	if err := c.emit(e, "Screenshot", target, output, bytes.NewReader(data), artifact.Options{NoClobber: c.NoClobber}); err != nil {
+		return err
+	}
+	if recorder == nil {
+		return nil
+	}
+	return c.writeHAR(e, page, recorder, harPath, harZip)
 }
 
 func (c *shotCmd) validate() error {
