@@ -548,11 +548,6 @@ finished. An entry with no `output` still loads its page while a HAR is being
 recorded, and writes no image; that is what upstream's injected `skip_shot` key
 does.
 
-**Chrome starts with the first shot, not with the batch.** An empty
-configuration, or one that only runs `sh:` steps and servers, never launches a
-browser. That is what makes "empty YAML is a successful no-op" literally true
-rather than "no-op after starting and stopping Chrome".
-
 **`--output` filters resolve the way the configuration's own paths do.**
 `Multi.Resolve` puts a filter through the same base directory as `output:`, so
 `-o one.png` matches `output: one.png` wherever the configuration lives, rather
@@ -641,9 +636,9 @@ exit has to be a subprocess test: in-process, the pipe a child inherited stays
 open for as long as the test binary does, so the bug the test is looking for
 cannot happen.
 
-**A multi run is one browser context, not one per entry.** `batch` creates the
-context with the browser, on the first entry that needs a page, and opens a
-fresh page in it per shot — PLAN.md Section 7's "one Chrome process, a fresh
+**A multi run is one browser context, not one per entry.** `batch` creates one
+context for the whole run — when it does is the Stage 7 entry's story — and
+opens a fresh page in it per shot — PLAN.md Section 7's "one Chrome process, a fresh
 page for each screenshot", and upstream's shape, where one context spans the run
 and `new_page()` is called per shot. It matters twice: a configuration that
 signs in or writes `localStorage` in one entry and captures the result in the
