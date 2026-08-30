@@ -374,23 +374,33 @@ func TestMultiServer(t *testing.T) {
 }
 
 func TestServerAddress(t *testing.T) {
+	// Each entry is "URL" or "server URL"; the first one is the entry holding
+	// the server whose address is being looked for.
 	tests := []struct {
-		name string
-		urls []string
-		want string
+		name    string
+		entries []string
+		want    string
 	}{
 		{"the port of the next entry", []string{"", "http://localhost:8000/x"}, "localhost:8000"},
 		{"the entry's own url", []string{"http://127.0.0.1:9999/"}, "127.0.0.1:9999"},
 		{"http without a port", []string{"http://example.com/"}, "example.com:80"},
 		{"https without a port", []string{"https://example.com/"}, "example.com:443"},
+		{"a bare host is normalized first", []string{"", "localhost:8000/"}, "localhost:8000"},
+		{"a bare domain gets http's port", []string{"", "example.com/x"}, "example.com:80"},
 		{"nothing to dial", []string{"", ""}, ""},
 		{"a file url is not an address", []string{"file:///tmp/x.html"}, ""},
+		{"the next server's url is not this one's", []string{"", "serve2 http://localhost:8812/"}, ""},
+		{"a url of its own still counts", []string{"http://localhost:8811/", "serve2 http://localhost:8812/"}, "localhost:8811"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			entries := make([]config.Entry, len(tt.urls))
-			for i, u := range tt.urls {
-				entries[i].URL = u
+			entries := make([]config.Entry, len(tt.entries))
+			for i, spec := range tt.entries {
+				if server, target, ok := strings.Cut(spec, " "); ok {
+					entries[i].Server = config.Command{Shell: server}
+					spec = target
+				}
+				entries[i].URL = spec
 			}
 			if got := serverAddress(entries); got != tt.want {
 				t.Errorf("serverAddress = %q, want %q", got, tt.want)

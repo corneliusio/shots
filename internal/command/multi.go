@@ -319,23 +319,37 @@ func (b *batch) close() {
 	if b.browser != nil {
 		b.browser.Close()
 	}
-	if b.cmd.LeaveServer {
-		return
-	}
 	for _, server := range slices.Backward(b.servers) {
-		if err := server.Stop(); err != nil {
+		stop := server.Stop
+		if b.cmd.LeaveServer {
+			stop = server.Detach
+		}
+		if err := stop(); err != nil {
 			fmt.Fprintln(b.env.stderr, "shots:", err)
 		}
 	}
 }
 
 // serverAddress is the address a server configured in entries[0] is expected to
-// answer on: the host and port of the first http or https URL from there on,
-// which is the page the server was started for. Nothing to dial means nothing
-// to wait for.
+// answer on: the host and port of the first http or https URL between there and
+// the next server: entry, which is the page this server was started for. A URL
+// is normalized first, so the bare form the rest of the tool accepts is dialed
+// too. Nothing to dial means nothing to wait for.
 func serverAddress(entries []config.Entry) string {
-	for _, entry := range entries {
-		u, err := url.Parse(entry.URL)
+	for i, entry := range entries {
+		// The URLs after the next server: belong to that server, which has not
+		// been started yet; waiting for one of them here could never succeed.
+		if i > 0 && !entry.Server.Empty() {
+			break
+		}
+		if entry.URL == "" {
+			continue
+		}
+		target, err := NormalizeURL(entry.URL)
+		if err != nil {
+			continue
+		}
+		u, err := url.Parse(target)
 		if err != nil || u.Host == "" {
 			continue
 		}
