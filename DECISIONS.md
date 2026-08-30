@@ -9,8 +9,9 @@ PLAN.md Section 4 puts them under the repository-root `testdata/`. They are
 embedded with `go:embed` instead, which cannot reach outside its own package
 directory. Embedding means a test in any package gets the same site without
 knowing where the repository root is, and without a relative-path dance in
-every test binary. `testdata/golden/<os>/` still belongs at the root, because
-golden images are compared by tests, not served.
+every test binary. `testdata/golden/<os>/` was expected to stay at the root,
+because golden images are compared by tests rather than served; Stage 7 below
+drops it and says why.
 
 **`config` validates values and resolves paths; it does not touch the
 filesystem.** Section 8 lists "existing input files" and "writable output
@@ -784,3 +785,76 @@ around while writing; there is nothing useful to stream. `-o -` is a usage
 error, and `--output` otherwise resolves against the current directory while
 the storyboard's own `output:` resolves against the storyboard, as every other
 path in a configuration file does.
+
+## Stage 7 — conformance sweep, documentation and release
+
+**A multi run acquires its browser once, before the first entry.** `batch.page`
+used to connect lazily and retry per entry, which had three consequences: a
+`NewContext` failure left `b.bctx` nil, so the next entry called
+`browser.Connect` again and overwrote `b.browser` — orphaning the previous
+Chrome and its temporary profile, since `batch.close` only closes the handle it
+still has, and `main` ends in `os.Exit` so no deferred allocator cancel runs
+either; one unreachable browser cost one `--timeout` per entry (25 minutes for a
+50-entry configuration at the 30s default) and was reported as "50 of 50 entries
+failed" rather than as the one real cause; and it contradicted PLAN.md Section
+7's "reuse one Chrome process". `batch.start` now runs before the loop, and only
+when `slices.ContainsFunc(entries, b.shoots)` finds a shot the `--output` filter
+kept — so Stage 5's "an empty or step-only configuration never launches a
+browser" still holds, verified by running a `sh:`-only configuration and
+counting `chromedp-runner` processes. A launch or context failure ends the
+command immediately with the real error, as upstream's does. The lazy branch is
+deleted rather than guarded, and `wanted` folded into `shoots`.
+
+**A recording waits for its first frame.** `Page.Record` issued
+`Page.startScreencast` and returned; Chrome answers that command before it
+composites anything, so a storyboard whose scenes finished first encoded nothing
+and `Encode` failed with "no frames were captured" — reproducibly, for a
+storyboard over a static `file://` page whose only action is `pause: 0`, and
+intermittently for `TestVideoShellSteps`. `Record` now wraps the caller's
+callback in one that closes a `first` channel, and returns only once a frame has
+been delivered, the context is cancelled, or the session timeout elapses. A
+recording therefore always has a frame in it, and the playlist a sane start.
+`StopRecording` issues `Page.stopScreencast` before clearing `onFrame`, so a
+frame Chrome had already emitted still reaches the spool instead of being
+dropped between the two statements.
+
+**A storyboard `screenshot:` picks its format from the extension.** It built
+`browser.ShotOptions` with only `FullPage` and `Clip`, so `screenshot: frame.jpg`
+wrote PNG bytes into a `.jpg` file, while the same idiom in a multi-shot
+configuration produced a real JPEG through `isJPEGPath`. Stage 2 records
+extension-based selection as deliberately reproduced upstream behaviour, so the
+two paths disagreed on a documented rule of shots' own. `recording.screenshot`
+now calls the same helper. No `quality` key is added to `screenshot`: the action
+has no field for it, and the extension alone is what the rule is about.
+
+**Per-OS golden images are dropped; the visual assertions are structural.**
+PLAN.md Section 13 asks for `testdata/golden/<os>/` and a thresholded full-image
+diff. What that buys over what `shot_test.go` already asserts — exact dimensions
+and encoded format through `image.DecodeConfig`, selector geometry, and
+reference pixels decoded with `png.Decode` for transparency and background — is
+a whole-image comparison whose only failure mode in practice is font
+rasterization, which is why the plan already needed one directory per operating
+system. Making that pass needs a threshold tuned until it accepts every renderer
+difference, at which point it accepts most regressions too, plus a Chrome pinned
+in CI on three platforms and three sets of images regenerated on every bump.
+The structural assertions catch what a screenshot tool actually breaks — wrong
+size, wrong format, wrong crop, lost transparency — and cost nothing to
+maintain. `testdata/` therefore does not exist; the deterministic pages live in
+`internal/testsite/pages/`, as Stage 1 records.
+
+**`internal/app/` does not exist.** PLAN.md Section 4 lists it as "application
+orchestration". `command` is that orchestration — `pageFlags.open` is the shared
+lifecycle, `batch` and `recording` are the two batch runners — and a package
+that only forwards between `cmd/shots` and `command` would be a name with no
+behaviour behind it.
+
+**Releases are a tag-triggered workflow, not GoReleaser.**
+`.github/workflows/release.yml` cross-builds the six `darwin`/`linux`/`windows`
+by `amd64`/`arm64` targets with `CGO_ENABLED=0 -trimpath`, stamps the tag into
+`command.Version` with `-ldflags -X`, archives each (`.tar.gz`, `.zip` for
+Windows), writes one `SHA256SUMS`, and attaches everything to the GitHub
+release — PLAN.md Section 12 Phase 7 and Section 14. Cross-compiling from one
+runner is enough because shots is pure Go: the only platform-specific code is
+build-tagged (`process/unix.go`, `process/windows.go`), and CI already runs the
+tests on all three operating systems. A release tool would add a dependency and
+a configuration file to do the same twenty lines of shell.
