@@ -3,6 +3,8 @@ package browser
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"sync"
 	"time"
 
 	cdpbrowser "github.com/chromedp/cdproto/browser"
@@ -66,15 +68,25 @@ func (p *Page) resize(ctx context.Context, dw, dh int) error {
 
 // Record streams screencast frames to onFrame until [Page.StopRecording].
 //
+// It returns once the first frame has been delivered, so a recording always has
+// something in it: Chrome answers Page.startScreencast before it composites
+// anything, and a storyboard whose scenes are quicker than that first frame
+// would otherwise encode nothing at all.
+//
 // onFrame runs on the connection's read goroutine, in frame order, so it must
 // hand the frame on rather than do the work itself. Chrome sends the next frame
 // only once this one is acknowledged, which happens on a goroutine of its own
 // because acknowledging is another CDP call.
 func (p *Page) Record(ctx context.Context, width, height int, onFrame func(Frame)) error {
+	first := make(chan struct{})
+	var once sync.Once
 	p.mu.Lock()
-	p.onFrame = onFrame
+	p.onFrame = func(f Frame) {
+		once.Do(func() { close(first) })
+		onFrame(f)
+	}
 	p.mu.Unlock()
-	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
 		return cdppage.StartScreencast().
 			WithFormat(cdppage.ScreencastFormatPng).
 			WithMaxWidth(int64(width)).
@@ -82,16 +94,31 @@ func (p *Page) Record(ctx context.Context, width, height int, onFrame func(Frame
 			WithEveryNthFrame(1).
 			Do(c)
 	}))
+	if err != nil {
+		return err
+	}
+	timer := time.NewTimer(p.timeout)
+	defer timer.Stop()
+	select {
+	case <-first:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("the browser sent no screencast frame within %s", p.timeout)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-// StopRecording ends the screencast. Frames already in flight are dropped.
+// StopRecording ends the screencast. The screencast is stopped before onFrame is
+// cleared, so a frame Chrome had already emitted is still spooled.
 func (p *Page) StopRecording(ctx context.Context) error {
+	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+		return cdppage.StopScreencast().Do(c)
+	}))
 	p.mu.Lock()
 	p.onFrame = nil
 	p.mu.Unlock()
-	return p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
-		return cdppage.StopScreencast().Do(c)
-	}))
+	return err
 }
 
 // frame delivers one screencast frame and acknowledges it.
