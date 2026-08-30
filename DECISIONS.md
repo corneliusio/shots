@@ -91,3 +91,137 @@ whole point of strict decoding: a config that sets `retina: true` says so out
 loud instead of being silently ignored. Their validations move to the flags in
 Phase 2. The `javascript` + `js_file` exclusion stays, because upstream's
 `_resolve_javascript` is called per entry.
+
+## Stage 2 — Browser, `shot`, `install`, `doctor`
+
+**The CDP library is `chromedp` + `cdproto`.** Both candidates were spiked
+against the local Chrome 152 with the same five probes — launch and connect,
+full-page screenshot, element clip, `await`ed promise, network events, and
+screencast frames — and both passed all five with equivalent output
+(full-page PNG 40,684 vs 40,688 bytes; 3 requests and 3 responses each;
+31 screencast frames each in 1.5s). The probes did not separate them, so the
+decision rests on three things that did:
+
+- *Maintenance.* chromedp released v0.16.0 on 2026-07-14. rod's newest release
+  is v0.116.2, from 2024-07-12 — two years without one.
+- *Dependency shape.* rod pulls in `ysmood/leakless`, which carries gzipped
+  supervisor binaries for five platforms inside its Go source and extracts and
+  executes one at runtime, and `ysmood/fetchup`, its browser downloader. Both
+  fight PLAN.md Section 11: shots downloads a browser only on an explicit
+  `shots install`, against a committed checksum, and runs nothing else.
+  chromedp's tree is `cdproto`, `gobwas/ws` and `go-json-experiment/json`.
+- *API fit.* chromedp is `context.Context`-native, so cancellation, deadlines
+  and the SIGINT path are ordinary Go. rod carries its own `Timeout`/`Context`
+  wrappers and a parallel `Must*` API that panics, which is the opposite of the
+  house style.
+
+Two chromedp quirks are worked around inside `internal/browser`, both
+documented at the call site:
+
+- `chromedp.WithNewBrowserContext` cannot open a page in a fresh browser
+  context on Chrome 152: `Target.createTarget` answers "Failed to open new tab -
+  no browser is open" unless `newWindow` is set, which chromedp does not set.
+  `browser.newTarget` issues `createBrowserContext` and `createTarget` itself
+  and attaches with `WithTargetID`.
+- chromedp binds the browser process and the page target to the context of
+  their *first* `Run`. Wrapping that first call in a `context.WithTimeout` kills
+  Chrome when the timeout fires — even on success, at the enclosing function's
+  `defer cancel()`. `browser.start` therefore runs the first `Run` on the
+  context itself and applies the timeout by waiting.
+
+**The video frame-capture mode is not decided here.** PLAN.md Phase 1 pairs it
+with the library choice, but nothing in Phase 2 captures frames, and choosing
+between screencast and `HeadlessExperimental.beginFrame` needs a real
+storyboard to measure. The one datum from the spike: `Page.startScreencast`
+delivered ~20 frames per second from a page animating at 20Hz, under both
+libraries.
+
+**Selector regions are a CDP clip rectangle, not upstream's wrapper `div`.**
+`shot-scraper` computes the combined bounding box in the page, appends an
+absolutely positioned `div` over it, waits 300ms, and screenshots that element,
+because Playwright can only capture a locator. `Page.captureScreenshot` takes a
+clip directly, so `internal/browser/region.js` returns the padded rectangle and
+Go passes it through. The geometry is upstream's, arithmetic included; the
+wrapper element, its random id and the 300ms settle are gone, and the page is
+never mutated.
+
+**`-b/--browser` is replaced by `--browser-path` and `--cdp-url`.** Upstream's
+`-b` chooses between `chromium`, `firefox`, `webkit`, `chrome` and
+`chrome-beta`. PLAN.md Section 2 rules out every value but Chromium, which
+leaves a flag with one legal value. PLAN.md Section 5's discovery order and
+`--cdp-url` cover what remains, so those are the flags shots has.
+
+**`--js-file` is not on `shot` yet.** PLAN.md Section 7's `shot` list says
+"JavaScript before capture"; Phase 3 lists "JavaScript files and stdin"
+separately, together with the `gh:` convention. Shipping a `--js-file` that
+reads local paths but not `-` or `gh:` would be a worse promise than not
+shipping it, so `--javascript` is the whole story until Phase 3.
+
+**The default command is resolved before kong sees the arguments.** kong's
+`default:"withargs"` implements PLAN.md Section 7's rule natively, including
+"subcommand names always win", but it makes the root node resolve to `shot`, so
+`shots --help` prints `shot`'s usage and never lists `install` or `doctor`.
+`command.resolve` prepends `shot` when the first argument is neither a
+subcommand name nor a root flag, which keeps the rule, keeps the help, and is
+directly unit-testable as PLAN.md Section 13 asks.
+
+**shots defines its own `--help` flag.** kong's built-in one claims `-h`, which
+upstream spends on `--height`. `--height` wins; help is `--help` only.
+
+**Basic authentication answers a challenge; it does not send a header.**
+`--auth-username` and `--auth-password` enable the CDP `Fetch` domain with
+`handleAuthRequests` and reply to `Fetch.authRequired` with the credentials,
+matching Playwright's `http_credentials`. Setting an `Authorization` header
+instead would leak the credentials to every origin the page touches.
+Chrome reports an unanswered challenge as the navigation error
+`ERR_INVALID_AUTH_CREDENTIALS` rather than returning the response, so
+`Page.Navigate` prefers a main-document status it already observed over the
+navigation error, and `--skip` and `--fail` see the 401.
+
+**`--log-requests` records what Chrome received, not what Playwright decoded.**
+Upstream logs on Playwright's `response` event with `size = len(response.body())`
+and Playwright's `timing` object. shots logs one JSON object per request when it
+finishes, with `size` set to Chrome's `encodedDataLength` — the bytes on the
+wire — and `size: null` for a request that failed. Timing waits for the `har`
+package, which is where the timing model belongs.
+
+**`--log-console` prints `type: text`.** Upstream echoes Playwright's
+`ConsoleMessage` repr. There is no value in reproducing another library's
+`__repr__`.
+
+**Interactive mode still applies `--skip` and `--fail`.** Upstream skips the
+HTTP check whenever the page was opened for interaction. That looks like a
+consequence of reusing `take_shot` with `use_existing_page`, not a decision, and
+silently ignoring `--fail` because `-i` was passed would be surprising.
+
+**`--quality 0` means "not set", as upstream's `if quality:` does.** Only 1-100
+and negative values are checked; a zero cannot be distinguished from an absent
+flag without making the flag a pointer, and upstream treats them the same.
+
+**JPEG is selected by `--quality` or by a `.jpg`/`.jpeg` output extension.**
+Upstream sets `type=jpeg` only for `--quality`, but then hands the path to
+Playwright, which infers the format from the extension. Both paths are
+reproduced explicitly.
+
+**`NormalizeURL` also passes through `file:`, `about:` and `data:`.** Upstream
+prepends `http://` to anything that is not already `http://` or `https://`, so
+`shot-scraper file:///tmp/x.html` fetches `http://file:///tmp/x.html`. The
+passthrough list is deliberately short: a URL is not parsed to find its scheme,
+because `example.com:8080/x` parses as one.
+
+**Selector flags do not split on commas.** kong splits repeated string flags on
+commas by default, which would break `-s '#a, #b'` — a single, legal CSS
+selector list. Every repeated flag uses `sep:"none"`, so repetition is the only
+way to pass more than one value, as upstream requires.
+
+**The browser manifest carries the executable path per platform.**
+`internal/browser/chrome.json` records `url`, `sha256` and `binary` for each of
+the five Chrome for Testing platforms. Keeping `binary` in the manifest rather
+than in a Go table means a version bump that moves the executable is a data
+change, and `tools/pin-chrome` verifies the path exists in the archive it just
+hashed, so the manifest cannot claim a path the archive does not have.
+
+**`doctor` writes its report to stdout and exits 1 on any problem.** The report
+is what the command was asked for, which is what PLAN.md Section 10 reserves
+stdout for. A missing `ffmpeg` or Python is reported with what it would have
+been needed for and is not a problem: neither is required for `shot`.
