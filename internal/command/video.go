@@ -49,6 +49,11 @@ func (c *videoCmd) Run(ctx context.Context, e *env) error {
 	if output == "" {
 		return usagef("the storyboard must set output:, or --output must name a file")
 	}
+	// Before anything is set up, started or recorded: a run that cannot encode
+	// must not first play the whole storyboard and its side effects.
+	if err := video.RequireFFmpeg(); err != nil {
+		return err
+	}
 
 	r := &recording{cmd: c, env: e, story: story, output: output}
 	// Runs on every path out, including a cancelled context: the server is

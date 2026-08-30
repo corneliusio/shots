@@ -122,6 +122,16 @@ func (r *Recorder) spool() {
 	}
 }
 
+// RequireFFmpeg reports that ffmpeg is missing. Encoding is the whole output
+// path, so a recording run asks before it launches Chrome: a storyboard that
+// cannot be encoded must not be played first.
+func RequireFFmpeg() error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return errors.New("ffmpeg is required to encode a video, and is not on PATH")
+	}
+	return nil
+}
+
 // Options configures [Recorder.Encode].
 type Options struct {
 	// WebM is where the video is written.
@@ -143,9 +153,6 @@ type Options struct {
 func (r *Recorder) Encode(ctx context.Context, opts Options) error {
 	if len(r.stamps) == 0 {
 		return errors.New("no frames were captured")
-	}
-	if _, err := exec.LookPath("ffmpeg"); err != nil {
-		return errors.New("ffmpeg is required to encode a video, and is not on PATH")
 	}
 	list := filepath.Join(r.dir, listFile)
 	if err := os.WriteFile(list, []byte(r.playlist(opts.End)), 0o644); err != nil {
