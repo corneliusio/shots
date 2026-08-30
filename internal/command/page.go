@@ -79,6 +79,9 @@ func (f pageFlags) validate() error {
 		return usagef("--skip and --fail cannot be used together")
 	case f.JavaScript != "" && f.JSFile != "":
 		return usagef("--javascript and --js-file cannot be used together")
+	case f.JSFile == "-" && (f.Interactive || f.DevTools):
+		// The Enter prompt reads the same stream the script would.
+		return usagef("--js-file - cannot be combined with --interactive or --devtools")
 	case f.Wait < 0:
 		return usagef("--wait must not be negative")
 	case f.Timeout < 0:

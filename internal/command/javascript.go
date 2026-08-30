@@ -83,7 +83,9 @@ func (c *javascriptCmd) source(ctx context.Context, e *env) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if source == "" {
+	// Standard input is the last resort, and not available at all when the
+	// Enter prompt is already reading it.
+	if source == "" && !c.Interactive && !c.DevTools {
 		data, err := io.ReadAll(e.stdin)
 		if err != nil {
 			return "", err
