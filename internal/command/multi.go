@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/url"
+	"os"
 	"slices"
 	"time"
 
@@ -178,7 +179,15 @@ func (b *batch) steps(ctx context.Context, entry config.Entry, rest []config.Ent
 // do not race its startup. A configuration that names no address to dial gets
 // no wait.
 func (b *batch) serve(ctx context.Context, cmd config.Command, addr string) error {
-	server, err := process.Start(b.command(cmd))
+	started := b.command(cmd)
+	if b.cmd.LeaveServer {
+		// A server that outlives shots cannot write to anything shots owns: the
+		// pipe's read end closes at exit, and the next line the server logs
+		// kills it. It gets shots' own standard error instead, which stays open
+		// for as long as whoever opened it keeps it.
+		started.Output = os.Stderr
+	}
+	server, err := process.Start(started)
 	if err != nil {
 		return err
 	}

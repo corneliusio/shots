@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -130,6 +131,31 @@ func TestRun(t *testing.T) {
 				t.Errorf("output = %q, want %q", got, tt.wantOutput)
 			}
 		})
+	}
+}
+
+// TestRunOutputFile covers the output a child can keep: an *os.File becomes the
+// child's own standard output and error, with no pipe of shots' in between, so
+// what it writes survives the process that started it. That is what
+// --leave-server needs.
+func TestRunOutputFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "out")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	cmd := self(t, "print", "into the file")
+	cmd.Output = f
+	if err := Run(t.Context(), cmd); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "into the file" {
+		t.Errorf("the file holds %q, want the child's output", got)
 	}
 }
 

@@ -330,21 +330,23 @@ func TestMultiShots(t *testing.T) {
 // A server is started, waited for, used, and stopped again.
 func TestMultiServer(t *testing.T) {
 	site(t) // only for the browser check
-	addr := freeAddr(t)
+
+	// serverConfig is the canonical layout: a server, then the page it serves.
 	// The server only starts listening after a delay, so a batch that did not
 	// wait for it would fail to navigate.
-	server := childArgs(t, "serve", addr, "700")
-
-	t.Run("the batch waits for it and stops it", func(t *testing.T) {
-		dir := t.TempDir()
-		cfg := writeConfig(t, dir, strings.Join([]string{
-			"- server: " + server,
+	serverConfig := func(t *testing.T, dir, addr string) string {
+		return writeConfig(t, dir, strings.Join([]string{
+			"- server: " + childArgs(t, "serve", addr, "700"),
 			"- url: http://" + addr + "/",
 			"  output: served.png",
 			"  selector: '#served'",
 			"",
 		}, "\n"))
-		if got := run(t, "multi", cfg); got.code != exitOK {
+	}
+
+	t.Run("the batch waits for it and stops it", func(t *testing.T) {
+		dir, addr := t.TempDir(), freeAddr(t)
+		if got := run(t, "multi", serverConfig(t, dir, addr)); got.code != exitOK {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 		if !exists(t, dir, "served.png") {
@@ -355,20 +357,29 @@ func TestMultiServer(t *testing.T) {
 		}
 	})
 
+	// The real binary, because what is being tested is what happens to the
+	// server once the shots process is gone: a server that inherited a pipe
+	// shots owned is killed by SIGPIPE the first time it logs a request.
 	t.Run("leave-server keeps it running", func(t *testing.T) {
-		dir := t.TempDir()
-		cfg := writeConfig(t, dir, strings.Join([]string{
-			"- server: " + server,
-			"- url: http://" + addr + "/",
-			"  output: served.png",
-			"  selector: '#served'",
-			"",
-		}, "\n"))
-		if got := run(t, "multi", cfg, "--leave-server"); got.code != exitOK {
-			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+		dir, addr := t.TempDir(), freeAddr(t)
+		// Standard error goes to a file, which the left-behind server inherits
+		// and can keep writing to.
+		log, err := os.Create(filepath.Join(dir, "stderr"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !answers(addr) {
-			t.Error("--leave-server stopped the server anyway")
+		defer log.Close()
+		cmd := exec.Command(binary(t), "multi", serverConfig(t, dir, addr), "--leave-server")
+		cmd.Stderr = log
+		if err := cmd.Run(); err != nil {
+			stderr, _ := os.ReadFile(filepath.Join(dir, "stderr"))
+			t.Fatalf("%v; stderr:\n%s", err, stderr)
+		}
+		if err := get(addr); err != nil {
+			t.Fatalf("--leave-server stopped the server anyway: %v", err)
+		}
+		if err := get(addr); err != nil {
+			t.Fatalf("the server died after logging a request: %v", err)
 		}
 	})
 }

@@ -34,6 +34,11 @@ type Cmd struct {
 	Dir string
 	// Output receives the child's standard output and standard error. Nil
 	// discards both. The child never inherits standard input.
+	//
+	// An *os.File is handed to the child as its own descriptor, so what it
+	// writes outlives shots — which is what a child left running needs. Any
+	// other writer is fed by a pipe shots owns, and a child still writing to
+	// that pipe after shots exits is killed by SIGPIPE.
 	Output io.Writer
 }
 
@@ -95,16 +100,23 @@ func Start(c Cmd) (*Server, error) {
 	cmd.Dir = c.Dir
 
 	s := &Server{label: c.label(), exited: make(chan struct{}), done: make(chan struct{})}
-	// The child writes into a pipe this process owns rather than one os/exec
-	// owns, because os/exec's Wait also waits for every inherited copy of the
-	// write end to close: a step that backgrounds a process would not be
-	// reaped until that process exited too. One writer for both streams keeps
-	// the child's output from interleaving with itself. copied is closed once
-	// everything holding the write end has let go.
+	// A child writing to an ordinary writer gets a pipe this process owns
+	// rather than one os/exec owns, because os/exec's Wait also waits for every
+	// inherited copy of the write end to close: a step that backgrounds a
+	// process would not be reaped until that process exited too. One writer for
+	// both streams keeps the child's output from interleaving with itself.
+	// copied is closed once everything holding the write end has let go, and is
+	// already closed when there is no pipe.
 	var w *os.File
 	copied := make(chan struct{})
 	close(copied)
-	if c.Output != nil {
+	switch out := c.Output.(type) {
+	case nil:
+	case *os.File:
+		// A descriptor the child can keep: os/exec passes it through, and
+		// nothing here has to close anything for the child to keep writing.
+		cmd.Stdout, cmd.Stderr = out, out
+	default:
 		r, pipe, err := os.Pipe()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", s.label, err)

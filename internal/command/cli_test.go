@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -68,6 +69,10 @@ func child(args []string) int {
 		// bounds its own life rather than outliving the test run.
 		time.AfterFunc(time.Minute, func() { os.Exit(0) })
 		http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Logging every request is what a real server does, and what makes
+			// a server writing to a descriptor shots owned die once shots has
+			// exited.
+			fmt.Fprintln(os.Stderr, "serving", r.URL.Path)
 			fmt.Fprint(w, `<!doctype html><style>html,body{margin:0}</style><div id=served>served</div>`)
 		}))
 	}
@@ -108,6 +113,18 @@ func answers(addr string) bool {
 	}
 	conn.Close()
 	return true
+}
+
+// get fetches a page from addr, which — unlike [answers] — makes the server
+// serving it log the request.
+func get(addr string) error {
+	resp, err := http.Get("http://" + addr + "/")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, err = io.ReadAll(resp.Body)
+	return err
 }
 
 // buildBinary builds cmd/shots once for the whole package. The subprocess tests

@@ -34,7 +34,9 @@ func (t *tree) kill() error      { return t.signal(syscall.SIGKILL) }
 func (t *tree) close()           {}
 
 // detach costs nothing here: a process group outlives the process that made it,
-// so simply not signalling it leaves it running.
+// so simply not signalling it leaves it running. What it writes has to outlive
+// shots too, which is decided at [Start] by the kind of [Cmd].Output it is
+// given, not here.
 func (t *tree) detach() error { return nil }
 
 // signal signals the whole group. An empty group is not an error: it is what
