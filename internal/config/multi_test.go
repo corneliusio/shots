@@ -485,8 +485,8 @@ func TestBaseDirLeavesAbsoluteStdoutAndGitHub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Entries[0].Output; got != abs {
-		t.Errorf("output = %q, want %q", got, abs)
+	if got, want := m.Entries[0].Output, filepath.ToSlash(abs); got != want {
+		t.Errorf("output = %q, want %q", got, want)
 	}
 	if got := m.Entries[1].Output; got != "-" {
 		t.Errorf("output = %q, want -", got)
