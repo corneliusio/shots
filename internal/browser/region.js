@@ -7,7 +7,7 @@
 // CDP takes a clip rectangle directly, so the div, its random id and the 300ms
 // settle it needed are not required.
 (spec) => {
-  const selectedElementsKey = Symbol.for('github.com/mostlyserious/shots.selected-elements');
+  const selectedElementsKey = Symbol.for('github.com/corneliusio/shots.selected-elements');
   delete globalThis[selectedElementsKey];
 
   const els = [];

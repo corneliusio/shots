@@ -11,11 +11,11 @@ server. `ffmpeg` is needed only by `shots video`.
 ## Install
 
 ```bash
-go install github.com/mostlyserious/shots/cmd/shots@latest
+go install github.com/corneliusio/shots/cmd/shots@latest
 ```
 
 Release archives for macOS, Linux and Windows, with a `SHA256SUMS` manifest, are
-attached to each [GitHub release](https://github.com/mostlyserious/shots/releases).
+attached to each [GitHub release](https://github.com/corneliusio/shots/releases).
 
 `shots` uses a Chrome it finds on your machine. To get a pinned, known-good
 build instead:

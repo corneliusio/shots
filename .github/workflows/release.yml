@@ -31,7 +31,7 @@ jobs:
             if [ "$os" = windows ]; then bin="shots.exe"; fi
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build \
               -trimpath \
-              -ldflags "-s -w -X github.com/mostlyserious/shots/internal/command.Version=${VERSION#v}" \
+              -ldflags "-s -w -X github.com/corneliusio/shots/internal/command.Version=${VERSION#v}" \
               -o "dist/$bin" ./cmd/shots
             if [ "$os" = windows ]; then
               (cd dist && zip -q "$name.zip" "$bin" && rm "$bin")

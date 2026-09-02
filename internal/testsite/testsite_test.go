@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mostlyserious/shots/internal/testsite"
+	"github.com/corneliusio/shots/internal/testsite"
 )
 
 func server(t *testing.T) (*http.Client, string) {

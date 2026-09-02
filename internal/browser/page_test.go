@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/testsite"
+	"github.com/corneliusio/shots/internal/testsite"
 )
 
 func TestScreenshotRestoresExternalOverlays(t *testing.T) {
@@ -49,8 +49,8 @@ func TestScreenshotRestoresExternalOverlays(t *testing.T) {
 		fixedVisibility: document.querySelector('header').style.getPropertyValue('visibility'),
 		fixedPriority: document.querySelector('header').style.getPropertyPriority('visibility'),
 		stickyStyle: document.querySelector('#sticky-overlay').getAttribute('style'),
-		hasSelectedState: Object.hasOwn(globalThis, Symbol.for('github.com/mostlyserious/shots.selected-elements')),
-		hasRestoreState: Object.hasOwn(globalThis, Symbol.for('github.com/mostlyserious/shots.restore-overlays')),
+		hasSelectedState: Object.hasOwn(globalThis, Symbol.for('github.com/corneliusio/shots.selected-elements')),
+		hasRestoreState: Object.hasOwn(globalThis, Symbol.for('github.com/corneliusio/shots.restore-overlays')),
 	})`)
 	if err != nil {
 		t.Fatal(err)

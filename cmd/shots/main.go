@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mostlyserious/shots/internal/command"
+	"github.com/corneliusio/shots/internal/command"
 )
 
 func main() {

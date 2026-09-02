@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mostlyserious/shots/internal/artifact"
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/artifact"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 type pdfCmd struct {

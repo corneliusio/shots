@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/browser"
-	"github.com/mostlyserious/shots/internal/config"
-	"github.com/mostlyserious/shots/internal/har"
+	"github.com/corneliusio/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/config"
+	"github.com/corneliusio/shots/internal/har"
 )
 
 // writeConfig writes a configuration into dir and returns its path.

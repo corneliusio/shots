@@ -10,11 +10,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/mostlyserious/shots/internal/artifact"
-	"github.com/mostlyserious/shots/internal/browser"
-	"github.com/mostlyserious/shots/internal/config"
-	"github.com/mostlyserious/shots/internal/har"
-	"github.com/mostlyserious/shots/internal/process"
+	"github.com/corneliusio/shots/internal/artifact"
+	"github.com/corneliusio/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/config"
+	"github.com/corneliusio/shots/internal/har"
+	"github.com/corneliusio/shots/internal/process"
 )
 
 type multiCmd struct {

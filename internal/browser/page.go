@@ -20,7 +20,7 @@ import (
 	"github.com/chromedp/cdproto/security"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
-	"github.com/mostlyserious/shots/internal/har"
+	"github.com/corneliusio/shots/internal/har"
 )
 
 // Message is one console message.

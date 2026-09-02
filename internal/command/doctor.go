@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 type doctorCmd struct {

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/artifact"
+	"github.com/corneliusio/shots/internal/artifact"
 )
 
 func TestFilenameFor(t *testing.T) {

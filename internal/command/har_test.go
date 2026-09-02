@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mostlyserious/shots/internal/har"
+	"github.com/corneliusio/shots/internal/har"
 )
 
 // readHAR reads a HAR file, checks it against the 1.2 specification and

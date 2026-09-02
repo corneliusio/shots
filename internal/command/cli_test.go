@@ -140,7 +140,7 @@ var buildBinary = sync.OnceValues(func() (string, error) {
 	if runtime.GOOS == "windows" {
 		path += ".exe"
 	}
-	out, err := exec.Command("go", "build", "-o", path, "github.com/mostlyserious/shots/cmd/shots").CombinedOutput()
+	out, err := exec.Command("go", "build", "-o", path, "github.com/corneliusio/shots/cmd/shots").CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("go build: %w: %s", err, out)
 	}

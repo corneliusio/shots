@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/config"
+	"github.com/corneliusio/shots/internal/config"
 )
 
 func parse(t *testing.T, yaml string) *config.Multi {

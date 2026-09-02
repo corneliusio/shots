@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 // tree runs the accessibility command and decodes its output.

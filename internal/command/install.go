@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 type installCmd struct {

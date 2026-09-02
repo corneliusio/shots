@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mostlyserious/shots/internal/browser"
-	"github.com/mostlyserious/shots/internal/testsite"
+	"github.com/corneliusio/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/testsite"
 )
 
 // result is one CLI invocation.

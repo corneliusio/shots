@@ -25,7 +25,7 @@ import (
 	"os"
 	"slices"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 // binaries is the browser executable inside each platform's archive.

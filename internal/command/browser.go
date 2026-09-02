@@ -7,7 +7,7 @@ import (
 	"net"
 	"slices"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 // errBrowserExited reports that the browser went away under a command that

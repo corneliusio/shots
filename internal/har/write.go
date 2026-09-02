@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mostlyserious/shots/internal/artifact"
+	"github.com/corneliusio/shots/internal/artifact"
 )
 
 // archiveMember is the name a zipped HAR keeps its log under, as Playwright's

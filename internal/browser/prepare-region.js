@@ -1,8 +1,8 @@
 // Scrolls a document-space clip into view and temporarily hides fixed or
 // sticky elements that overlap it without belonging to the selected DOM trees.
 (async (clip) => {
-  const selectedElementsKey = Symbol.for('github.com/mostlyserious/shots.selected-elements');
-  const restoreOverlaysKey = Symbol.for('github.com/mostlyserious/shots.restore-overlays');
+  const selectedElementsKey = Symbol.for('github.com/corneliusio/shots.selected-elements');
+  const restoreOverlaysKey = Symbol.for('github.com/corneliusio/shots.restore-overlays');
   const previousRestore = globalThis[restoreOverlaysKey];
   if (typeof previousRestore === 'function') previousRestore();
   delete globalThis[restoreOverlaysKey];

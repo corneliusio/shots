@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/mostlyserious/shots/internal/artifact"
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/artifact"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 // jsonIndent is upstream's json.dumps(indent=4).

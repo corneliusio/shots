@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mostlyserious/shots/internal/browser"
+	"github.com/corneliusio/shots/internal/browser"
 )
 
 // headless keeps the sign-in browser off the screen during tests. shots runs

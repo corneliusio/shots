@@ -11,7 +11,7 @@ import (
 
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
-	"github.com/mostlyserious/shots/internal/har"
+	"github.com/corneliusio/shots/internal/har"
 )
 
 // HAR buffer sizes, raised well above Chrome's defaults so a page's bodies are
