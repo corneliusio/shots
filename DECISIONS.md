@@ -972,8 +972,8 @@ also keeps the reported crop size honest.
 
 **`shot` is renamed `take`, and bare `shots` prints help.** `shots shot` was
 upstream's name, but read aloud it is a stutter, while `shots take
-example.com` says what happens. It stays the default command, so the resolution
-rule and every bare-URL invocation are unchanged. Running `shots` with no
+example.com` says what happens. A bare URL is still shorthand for it, so the
+resolution rule and every bare-URL invocation are unchanged. Running `shots` with no
 arguments used to run `take` and fail on the missing URL, which helps nobody;
 it now shows the command list, which is what someone typing only the program
 name is asking for.

@@ -173,11 +173,11 @@ Default timeouts: navigation and script execution default to 30 seconds each, ma
 
 ### Command-name versus URL resolution
 
-Because `take` is the default command, a first argument like `html` or `multi` is ambiguous. The rule: **subcommand names always win**. `shots html` invokes the `html` command (and errors on the missing URL argument). To screenshot a host or file whose name collides with a subcommand, use the explicit form (`shots take html`) or a path form (`shots ./html`). This rule is documented in `--help` and in the CLI reference.
+Because a URL as the first argument is shorthand for `take`, a first argument like `html` or `multi` is ambiguous. The rule: **subcommand names always win**. `shots html` invokes the `html` command (and errors on the missing URL argument). To screenshot a host or file whose name collides with a subcommand, use the explicit form (`shots take html`) or a path form (`shots ./html`). This rule is documented in `--help` and in the CLI reference.
 
 ### `shots take URL`
 
-`take` will be the default command, and `shots` with no arguments prints the help:
+A URL as the first argument is shorthand for `take`, and `shots` with no arguments prints the help:
 
 ```bash
 shots https://example.com

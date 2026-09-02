@@ -40,8 +40,8 @@ var errSkipped = errors.New("skipped")
 // resolution rule is visible to users.
 const description = `Take automated screenshots with Chrome.
 
-take is the default command, so "shots example.com" takes a screenshot, and
-shots alone prints this help. A first
+A URL as the first argument is shorthand for the take command, so "shots
+example.com" takes a screenshot, and shots alone prints this help. A first
 argument that names a command always selects that command: capture a host that
 collides with one as "shots take html" or "shots ./html".`
 

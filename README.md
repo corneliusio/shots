@@ -64,8 +64,8 @@ shots pdf example.com -o page.pdf
 
 ### Command names versus URLs
 
-`take` is the default command, so `shots example.com` is `shots take
-example.com`, and `shots` on its own prints the help. **A first argument that
+A URL as the first argument is shorthand for `take`, so `shots example.com` is
+`shots take example.com`, and `shots` on its own prints the help. **A first argument that
 names a command always selects that command**: `shots html` runs the `html`
 command and complains about the missing URL. To capture a host that collides
 with a command name, be explicit — `shots take html` — or use a path form,
@@ -396,8 +396,8 @@ matches.
 `shots` keeps upstream's commands, flags and YAML keys where that is practical.
 The deliberate differences:
 
-- **`shot` is `take`.** `shots take example.com` reads as what it does, and it
-  stays the default command. `shots` with no arguments prints the help instead
+- **`shot` is `take`.** `shots take example.com` reads as what it does, and a
+  bare URL is still shorthand for it. `shots` with no arguments prints the help instead
   of failing on a missing URL.
 - **Chromium only.** No Firefox or WebKit, so upstream's `-b/--browser` is gone.
   `--browser-path` picks an executable and `--cdp-url` attaches to a running

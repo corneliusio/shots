@@ -13,7 +13,7 @@ func TestHelpDocumentsTheResolutionRule(t *testing.T) {
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
-	for _, want := range []string{"take is the default command", "shots take html", "shots ./html", "doctor", "install"} {
+	for _, want := range []string{"shorthand for the take command", "shots take html", "shots ./html", "doctor", "install"} {
 		if !strings.Contains(string(got.stdout), want) {
 			t.Errorf("--help is missing %q:\n%s", want, got.stdout)
 		}
@@ -51,7 +51,7 @@ func TestNoArgumentsPrintHelp(t *testing.T) {
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
-	if !strings.Contains(string(got.stdout), "take is the default command") {
+	if !strings.Contains(string(got.stdout), "shorthand for the take command") {
 		t.Errorf("stdout is not the help:\n%s", got.stdout)
 	}
 }
