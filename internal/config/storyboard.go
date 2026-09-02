@@ -26,9 +26,8 @@ type Storyboard struct {
 	// URL is the starting page. It may be empty when the first scene opens one.
 	URL string `yaml:"url"`
 
-	// Sh, Python and Server run before the browser opens, in that order.
+	// Sh and Server run before the browser opens, in that order.
 	Sh     Command `yaml:"sh"`
-	Python string  `yaml:"python"`
 	Server Command `yaml:"server"`
 
 	Viewport Viewport `yaml:"viewport"`
@@ -91,7 +90,6 @@ type Scene struct {
 	WaitFor    string  `yaml:"wait_for"`
 	WaitForURL string  `yaml:"wait_for_url"`
 	Sh         Command `yaml:"sh"`
-	Python     string  `yaml:"python"`
 	Do         Actions `yaml:"do"`
 }
 
@@ -130,7 +128,7 @@ type Action struct {
 	Seconds float64 `yaml:"seconds"`
 	// URL belongs to open and wait_for_url.
 	URL string `yaml:"url"`
-	// Code is JavaScript or Python source.
+	// Code is JavaScript source.
 	Code string `yaml:"code"`
 	// Output is a screenshot's destination, already resolved against
 	// [Storyboard].BaseDir.
@@ -162,7 +160,6 @@ var actionSpecs = map[string]actionSpec{
 	"js":           {"code", []string{"code"}},
 	"screenshot":   {"output", []string{"output", "selector", "full_page"}},
 	"sh":           {"command", []string{"command"}},
-	"python":       {"code", []string{"code"}},
 }
 
 // LoadStoryboard reads a storyboard file, resolving relative paths against the
@@ -233,9 +230,6 @@ func (s *Storyboard) validate(line int, lines map[string]int) error {
 	}
 	if c.present("sh") && s.Sh.Empty() {
 		c.fail("sh", "must not be empty")
-	}
-	if c.present("python") && strings.TrimSpace(s.Python) == "" {
-		c.fail("python", "must not be empty")
 	}
 	if c.present("server") && s.Server.Empty() {
 		c.fail("server", "must not be empty")
@@ -318,9 +312,6 @@ func (s *Scene) UnmarshalYAML(n *yaml.Node) error {
 	if c.present("sh") && s.Sh.Empty() {
 		c.fail("sh", "must not be empty")
 	}
-	if c.present("python") && strings.TrimSpace(s.Python) == "" {
-		c.fail("python", "must not be empty")
-	}
 	return c.result()
 }
 
@@ -395,7 +386,7 @@ func (a *Action) validate(name string, line int, lines map[string]int) error {
 		c.required(selector, a.Selector)
 	case "wait_for_url", "open":
 		c.required("url", a.URL)
-	case "javascript", "python":
+	case "javascript":
 		c.required("code", a.Code)
 	case "screenshot":
 		c.required("output", a.Output)

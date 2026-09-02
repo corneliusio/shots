@@ -95,14 +95,11 @@ func (e *Entry) validate(path string, line int, lines map[string]int) error {
 	if c.present("sh") && e.Sh.Empty() {
 		c.fail("sh", "must not be empty")
 	}
-	if c.present("python") && strings.TrimSpace(e.Python) == "" {
-		c.fail("python", "must not be empty")
-	}
 	if c.present("server") && e.Server.Empty() {
 		c.fail("server", "must not be empty")
 	}
 	// A step-only entry needs no URL; anything else must ask for a screenshot.
-	step := c.present("sh") || c.present("python") || c.present("server")
+	step := c.present("sh") || c.present("server")
 	if (!step || c.present("url")) && strings.TrimSpace(e.URL) == "" {
 		c.fail("url", "required")
 	}
@@ -115,6 +112,32 @@ func (e *Entry) validate(path string, line int, lines map[string]int) error {
 	c.nonNegative("padding", e.Padding)
 	if c.present("quality") && (e.Quality < 1 || e.Quality > 100) {
 		c.fail("quality", "must be between 1 and 100")
+	}
+	if c.present("format") && e.Format != "jpeg" && e.Format != "jpg" && e.Format != "png" {
+		c.fail("format", "must be jpeg or png")
+	}
+	format := e.Format
+	if format == "jpg" {
+		format = "jpeg"
+	}
+	pathFormat := ""
+	switch strings.ToLower(filepath.Ext(e.Output)) {
+	case ".jpg", ".jpeg":
+		pathFormat = "jpeg"
+	case ".png":
+		pathFormat = "png"
+	}
+	if format != "" && pathFormat != "" && format != pathFormat {
+		c.fail("format", "conflicts with output extension %s", filepath.Ext(e.Output))
+	}
+	if format == "" {
+		format = pathFormat
+	}
+	if format == "png" && c.present("quality") {
+		c.fail("quality", "requires JPEG output")
+	}
+	if format == "jpeg" && e.OmitBackground {
+		c.fail("omit_background", "requires PNG output")
 	}
 	if c.present("javascript") && c.present("js_file") {
 		c.fail("js_file", "cannot be combined with javascript")

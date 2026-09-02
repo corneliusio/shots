@@ -25,10 +25,12 @@ func TestPinnedManifest(t *testing.T) {
 		switch {
 		case !strings.Contains(build.URL, m.Version):
 			t.Errorf("%s: URL %q does not name version %s", platform, build.URL, m.Version)
+		case !strings.Contains(build.URL, "/chrome-headless-shell-"):
+			t.Errorf("%s: URL %q is not a Chrome Headless Shell archive", platform, build.URL)
 		case len(build.SHA256) != 64:
 			t.Errorf("%s: SHA256 %q is not a hex digest", platform, build.SHA256)
-		case build.Binary == "":
-			t.Errorf("%s: no executable path", platform)
+		case !strings.Contains(build.Binary, "chrome-headless-shell"):
+			t.Errorf("%s: executable %q is not Chrome Headless Shell", platform, build.Binary)
 		}
 	}
 }

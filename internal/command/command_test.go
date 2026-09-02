@@ -13,7 +13,7 @@ func TestHelpDocumentsTheResolutionRule(t *testing.T) {
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
-	for _, want := range []string{"shot is the default command", "shots shot html", "shots ./html", "doctor", "install"} {
+	for _, want := range []string{"take is the default command", "shots take html", "shots ./html", "doctor", "install"} {
 		if !strings.Contains(string(got.stdout), want) {
 			t.Errorf("--help is missing %q:\n%s", want, got.stdout)
 		}
@@ -21,21 +21,21 @@ func TestHelpDocumentsTheResolutionRule(t *testing.T) {
 }
 
 func TestResolve(t *testing.T) {
-	commands := []string{"shot", "install", "doctor"}
+	commands := []string{"take", "install", "doctor"}
 	tests := []struct {
 		name string
 		args []string
 		want []string
 	}{
-		{"no arguments run shot", nil, []string{"shot"}},
-		{"a URL runs shot", []string{"example.com"}, []string{"shot", "example.com"}},
-		{"a flag runs shot", []string{"-w", "800", "example.com"}, []string{"shot", "-w", "800", "example.com"}},
+		{"no arguments ask for help", nil, []string{"--help"}},
+		{"a URL runs take", []string{"example.com"}, []string{"take", "example.com"}},
+		{"a flag runs take", []string{"-w", "800", "example.com"}, []string{"take", "-w", "800", "example.com"}},
 		{"a subcommand wins", []string{"doctor"}, []string{"doctor"}},
-		{"an explicit shot stays", []string{"shot", "install"}, []string{"shot", "install"}},
+		{"an explicit take stays", []string{"take", "install"}, []string{"take", "install"}},
 		{"root help stays at the root", []string{"--help"}, []string{"--help"}},
 		{"root version stays at the root", []string{"--version"}, []string{"--version"}},
 		{"a colliding host needs the explicit form", []string{"install"}, []string{"install"}},
-		{"a path form escapes the collision", []string{"./install"}, []string{"shot", "./install"}},
+		{"a path form escapes the collision", []string{"./install"}, []string{"take", "./install"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,5 +43,15 @@ func TestResolve(t *testing.T) {
 				t.Errorf("resolve(%q) = %q, want %q", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestNoArgumentsPrintHelp(t *testing.T) {
+	got := run(t)
+	if got.code != exitOK {
+		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
+	}
+	if !strings.Contains(string(got.stdout), "take is the default command") {
+		t.Errorf("stdout is not the help:\n%s", got.stdout)
 	}
 }

@@ -16,18 +16,28 @@ import (
 // every location that was tried.
 type NotFoundError struct {
 	Checked []string
+	Headed  bool
 }
 
 func (e *NotFoundError) Error() string {
+	if e.Headed {
+		return "no headed Chrome or Chromium found; shots install provides Chrome Headless Shell only; checked:\n  " + strings.Join(e.Checked, "\n  ")
+	}
 	return "no Chrome or Chromium found; checked:\n  " + strings.Join(e.Checked, "\n  ")
 }
 
 // Discover resolves the Chrome executable to use, in this order: the given
 // path, $SHOTS_BROWSER_PATH, the browser installed by "shots install",
-// Chrome or Chromium on $PATH, then the well-known locations for this
-// platform. It returns a [*NotFoundError] listing everything it tried when
-// none of them exists.
+// Chrome Headless Shell, Chrome or Chromium on $PATH, then the well-known
+// locations for this platform. It returns a [*NotFoundError] listing
+// everything it tried when none of them exists.
 func Discover(path string) (string, error) {
+	return discover(path, false)
+}
+
+// discover skips the installed headless-only browser when headed is true.
+// Explicit paths and SHOTS_BROWSER_PATH still win because the user chose them.
+func discover(path string, headed bool) (string, error) {
 	var checked []string
 	try := func(candidate, why string) (string, bool) {
 		if candidate == "" {
@@ -54,12 +64,14 @@ func Discover(path string) (string, error) {
 	if found, ok := try(os.Getenv("SHOTS_BROWSER_PATH"), "SHOTS_BROWSER_PATH"); ok {
 		return found, nil
 	}
-	if installed, err := InstalledPath(); err == nil {
-		if found, ok := try(installed, "shots install"); ok {
-			return found, nil
+	if !headed {
+		if installed, err := InstalledPath(); err == nil {
+			if found, ok := try(installed, "shots install"); ok {
+				return found, nil
+			}
 		}
 	}
-	for _, name := range pathNames() {
+	for _, name := range pathNames(headed) {
 		checked = append(checked, name+" (on PATH)")
 		if found, err := exec.LookPath(name); err == nil {
 			return found, nil
@@ -70,7 +82,7 @@ func Discover(path string) (string, error) {
 			return found, nil
 		}
 	}
-	return "", &NotFoundError{Checked: checked}
+	return "", &NotFoundError{Checked: checked, Headed: headed}
 }
 
 // MissingLibraries lists the shared libraries the browser at path needs but
@@ -114,15 +126,26 @@ func executable(path string) bool {
 	return info.Mode().Perm()&0o111 != 0
 }
 
-// pathNames are the executable names looked up on $PATH.
-func pathNames() []string {
+// pathNames are the executable names looked up on $PATH. Chrome Headless Shell
+// is preferred for headless work and excluded when a visible window is needed.
+func pathNames(headed bool) []string {
+	if headed {
+		switch runtime.GOOS {
+		case "windows":
+			return []string{"chrome.exe", "chromium.exe"}
+		case "darwin":
+			return []string{"chrome", "chromium"}
+		default:
+			return []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"}
+		}
+	}
 	switch runtime.GOOS {
 	case "windows":
-		return []string{"chrome.exe", "chromium.exe"}
+		return []string{"chrome-headless-shell.exe", "headless_shell.exe", "chrome.exe", "chromium.exe"}
 	case "darwin":
-		return []string{"chrome", "chromium"}
+		return []string{"chrome-headless-shell", "headless_shell", "chrome", "chromium"}
 	default:
-		return []string{"google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"}
+		return []string{"chrome-headless-shell", "headless_shell", "google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"}
 	}
 }
 
@@ -174,7 +197,7 @@ func installDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(cache, "chrome", pinned.Version, build.platform), nil
+	return filepath.Join(cache, "chrome-headless-shell", pinned.Version, build.platform), nil
 }
 
 // InstalledPath is where "shots install" puts the pinned browser's executable

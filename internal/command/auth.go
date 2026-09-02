@@ -50,6 +50,7 @@ func (c *authCmd) Run(ctx context.Context, e *env) error {
 		UserAgent:     c.UserAgent,
 		ReducedMotion: c.ReducedMotion,
 		BypassCSP:     c.BypassCSP,
+		Insecure:      c.Insecure,
 		Username:      c.AuthUsername,
 		Password:      c.AuthPassword,
 	}

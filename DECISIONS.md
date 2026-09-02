@@ -72,10 +72,11 @@ stem and extension the name was built from, not re-derived from the finished
 path, so a multi-part extension stays whole: `trace.har.zip` collides to
 `trace.1.har.zip`, as upstream does.
 
-**Cross-validating `quality` against the output file extension is not
-implemented.** Upstream's exact rule for "JPEG quality with a non-JPEG output"
-is ambiguous enough that guessing would create a difference that has to be
-documented later. Only the 1-100 range is checked.
+**Format, extension, transparency and quality cannot disagree.** Screenshots
+default to JPEG quality 80. `--format png`, a `.png` output or
+`--omit-background` selects PNG; a `.jpg` or `.jpeg` output selects JPEG.
+Quality applies only to JPEG, and JPEG cannot omit its background. Rejecting a
+conflict prevents a file extension from lying about its bytes.
 
 **The Phase 0 flag matrix lives in `COMPAT.md`.** Read out of the pinned
 commit's `cli.py`: every command, its arguments and its flags (including the
@@ -195,14 +196,14 @@ HTTP check whenever the page was opened for interaction. That looks like a
 consequence of reusing `take_shot` with `use_existing_page`, not a decision, and
 silently ignoring `--fail` because `-i` was passed would be surprising.
 
-**`--quality 0` means "not set", as upstream's `if quality:` does.** Only 1-100
-and negative values are checked; a zero cannot be distinguished from an absent
-flag without making the flag a pointer, and upstream treats them the same.
+**`--quality 0` means "use JPEG quality 80".** Explicit quality values remain
+limited to 1 through 100. A PNG request rejects quality rather than silently
+ignoring it.
 
-**JPEG is selected by `--quality` or by a `.jpg`/`.jpeg` output extension.**
-Upstream sets `type=jpeg` only for `--quality`, but then hands the path to
-Playwright, which infers the format from the extension. Both paths are
-reproduced explicitly.
+**Chrome optimizes screenshot encoding for speed.** On the 1280 by 17780
+GitHub Features page, `optimizeForSpeed` reduced PNG encoding from 491ms to
+242ms while increasing the file from 3.27MB to 4.29MB. Screenshot turnaround
+is the product goal, so the larger lossless file is the right default.
 
 **`NormalizeURL` also passes through `file:`, `about:` and `data:`.** Upstream
 prepends `http://` to anything that is not already `http://` or `https://`, so
@@ -221,6 +222,22 @@ the five Chrome for Testing platforms. Keeping `binary` in the manifest rather
 than in a Go table means a version bump that moves the executable is a data
 change, and `tools/pin-chrome` verifies the path exists in the archive it just
 hashed, so the manifest cannot claim a path the archive does not have.
+
+**`shots install` pins Chrome Headless Shell instead of full Chrome.** A
+six-site production benchmark ran three cold and three warm captures per site
+for each browser. With the same Chrome 152 engine and JPEG 80 output, Headless
+Shell reduced shots' mean cold run from 880ms to 574ms. Warm captures were
+effectively unchanged at 211ms for full Chrome and 209ms for the shell. All 216
+benchmark captures succeeded. The output matched closely when both browsers
+used the same color scheme; one MDN comparison differed because full Chrome
+inherited macOS dark mode while the shell used light mode.
+
+The managed shell is therefore the normal headless browser. A shell found on
+`PATH` is also preferred for headless commands. Visible `auth`, `--interactive`
+and `--devtools` runs skip the managed shell and shell executable names, then
+look for full Chrome or Chromium. `--browser-path`, `$SHOTS_BROWSER_PATH` and
+`--cdp-url` remain explicit overrides. This keeps the measured startup win
+without pretending the shell can provide a visible browser window.
 
 **`$SHOTS_BROWSER_PATH` is read in exactly one place: `browser.Discover`.** An
 earlier revision also put `env:"SHOTS_BROWSER_PATH"` on `--browser-path`, which
@@ -251,8 +268,8 @@ old is left to Chrome to complain about.
 
 **`doctor` writes its report to stdout and exits 1 on any problem.** The report
 is what the command was asked for, which is what PLAN.md Section 10 reserves
-stdout for. A missing `ffmpeg` or Python is reported with what it would have
-been needed for and is not a problem: neither is required for `shot`.
+stdout for. A missing `ffmpeg` is reported with what it would have been needed
+for and is not a problem: it is not required for `shot`.
 
 **One lock guards both output streams, so callbacks can just write.** CDP event
 callbacks run on the connection's read goroutine while the main goroutine writes
@@ -520,8 +537,8 @@ layout, and scanning past would make the first server wait 30 seconds for a port
 only the second one will ever open.
 
 **A failed step stops the batch; a failed shot is reported and the batch carries
-on.** That split is PLAN.md Section 7's ("stop after a failed shell or Python
-step") and upstream's: everything after a step was written expecting it to have
+on.** That split is PLAN.md Section 7's ("stop after a failed shell step") and
+upstream's: everything after a step was written expecting it to have
 run, while one unreachable page among fifty is not a reason to abandon the other
 forty-nine. `--fail-on-error` stops at the first failing shot, as upstream's
 does. One difference from upstream: a run with failed shots exits 1 with a
@@ -552,14 +569,6 @@ does.
 `Multi.Resolve` puts a filter through the same base directory as `output:`, so
 `-o one.png` matches `output: one.png` wherever the configuration lives, rather
 than matching only when it happens to sit in the current directory.
-
-**Python resolution is an ordered candidate list, like browser discovery.**
-`$SHOTS_PYTHON`, then `python3`, then `python`, each accepted only if
-`exec.LookPath` finds it; a variable pointing at something that is no longer
-there falls through instead of failing the run, exactly as `$SHOTS_BROWSER_PATH`
-does in `browser.Discover`. The error naming all three candidates can only
-appear while running a `python:` step, so a machine without Python runs
-everything else unaffected.
 
 **`pageFlags` split into `sessionFlags` and `pageFlags`.** The options that
 describe a whole run — which browser, which authentication state, `--timeout`,
@@ -649,13 +658,6 @@ addition that makes it sayable — `Browser.NewContext` creates the context and
 restores state into it, `Context.NewPage` opens a page in it, `Page.Close` now
 closes only the page — and the single-page commands say the same three steps in
 `pageFlags.open`.
-
-**`doctor` asks `process.Python()` rather than repeating the order.** The report
-used its own copy of PLAN.md Section 9's `$SHOTS_PYTHON` → `python3` → `python`
-rule, and the copies had already drifted: with `$SHOTS_PYTHON` pointing at a
-moved interpreter, `doctor` printed "python: not found" while `multi` ran
-`python3` happily. One resolver, asked by both, is what makes the diagnostic
-worth reading. `checkTool` stays for `ffmpeg`, which has no resolution order.
 
 ## Stage 6 — `video` and storyboards
 
@@ -815,12 +817,10 @@ dropped between the two statements.
 
 **A storyboard `screenshot:` picks its format from the extension.** It built
 `browser.ShotOptions` with only `FullPage` and `Clip`, so `screenshot: frame.jpg`
-wrote PNG bytes into a `.jpg` file, while the same idiom in a multi-shot
-configuration produced a real JPEG through `isJPEGPath`. Stage 2 records
-extension-based selection as deliberately reproduced upstream behaviour, so the
-two paths disagreed on a documented rule of shots' own. `recording.screenshot`
-now calls the same helper. No `quality` key is added to `screenshot`: the action
-has no field for it, and the extension alone is what the rule is about.
+wrote PNG bytes into a `.jpg` file. `recording.screenshot` now calls the same
+format resolver as `shot` and `multi`. No `quality` key is added to
+`screenshot`: the action has no field for it, and the extension alone selects
+PNG instead of the JPEG quality 80 default.
 
 **Per-OS golden images are dropped; the visual assertions are structural.**
 PLAN.md Section 13 asks for `testdata/golden/<os>/` and a thresholded full-image
@@ -853,3 +853,127 @@ runner is enough because shots is pure Go: the only platform-specific code is
 build-tagged (`process/unix.go`, `process/windows.go`), and CI already runs the
 tests on all three operating systems. A release tool would add a dependency and
 a configuration file to do the same twenty lines of shell.
+
+## Stage 8 — remove dedicated Python steps
+
+**`python:` is not part of the configuration language.** It duplicated `sh:`
+while adding interpreter discovery, `$SHOTS_PYTHON`, validation branches,
+diagnostics and four separate execution positions. A project that needs Python
+can invoke its script explicitly with `sh: python3 scripts/prepare.py`; a
+long-running Python process still works under `server:`. Removing the dedicated
+key keeps the runtime free of Python awareness and makes the dependency belong
+to the configuration that chose it. Existing `shot-scraper` files that use
+`python:` now fail strict decoding with an unknown-field or unknown-action
+error, which is the intentional compatibility break.
+
+## Stage 9 — agent-focused screenshot iteration
+
+**`--report` is a bounded capture summary, not a second trace format.** One
+compact JSON object carries the requested and final URL, main-document status,
+output, duration, console messages, uncaught page exceptions, failed requests,
+and the terminal error. Each diagnostic category keeps 100 entries and counts
+the rest. Successful requests, bodies, HTML, accessibility trees and image
+bytes remain in their existing artifacts; duplicating them here would turn a
+quick agent response into HAR-sized output. A file is atomically replaced, and
+`--report -` becomes JSON Lines under `--repeat`.
+
+**`--stable` is explicit and finite.** It emulates reduced motion before the
+page loads, then disables animations and transitions, hides carets, waits for
+`document.fonts.ready`, waits for images already present in the document to
+load or fail, and yields two animation frames. It does not wait for network
+idle, freeze clocks, rewrite application data or promise pixel identity across
+Chrome and operating-system versions. Those controls are expensive, brittle,
+or surprising for the common edit-and-screenshot loop.
+
+**`--repeat` reuses one browser, context and page, but is not a daemon.** The
+first capture runs immediately; every complete stdin line triggers another
+navigation and atomic replacement of the same explicit output file. EOF and
+signals end the process; a failed capture is reported and counted, not fatal,
+because the loop exists for edits that are sometimes broken. The URL and options cannot change mid-run, and there
+is no watcher, socket, HTTP endpoint, browser pool or request protocol.
+Conflicting stdin and output modes, `--no-clobber`, headed interaction and HAR
+recording are usage errors. This removes Chrome startup from the inner loop
+without creating a resident service to configure or maintain.
+
+**`multi` gets the same stabilization and report primitives, not a second
+batch protocol.** `--stable` applies before each selected entry's screenshot,
+while `--report` writes one bounded `shots.capture.v1` object per entry as JSON
+Lines. The existing batch already reuses one Chrome process and browser
+context, so adding these two flags gives agents cross-URL session reuse without
+a daemon, queue, or new configuration keys.
+
+**Color scheme is explicit and optional.** `--color-scheme` accepts `light`,
+`dark`, or `no-preference` and is combined with reduced-motion emulation in one
+CDP call. Omitting it preserves Chrome's current behavior. This avoids captures
+changing with the operator's system appearance without forcing every site into
+light mode.
+
+**Capture reports include the CDP Log domain.** Runtime console events cover
+calls such as `console.log`, but Chrome reports browser-generated failures such
+as a rejected stylesheet through the Log domain. Both become the same bounded
+`console` message shape. Failed requests remain in `failed_requests`, so an
+agent can distinguish the visible browser error from its network cause.
+
+**Element screenshots scroll before using a CDP clip.**
+Chrome can substitute composited fixed or sticky content when a document-space
+clip is wholly below the fold. `shots` scrolls the region toward the viewport
+center and waits two paint frames before capture.
+It temporarily hides only intersecting fixed or sticky elements outside the
+selected DOM trees, then restores each element's prior inline visibility. Fixed
+or sticky descendants and ancestors of a selection remain visible. Chrome then
+encodes the selected document rectangle directly, including a rectangle larger
+than the viewport. This preserves combined-selector and padding behavior without
+encoding a full viewport or page and cropping it again in Go.
+
+**Artifact writes name a missing parent directory, but do not create it.**
+Output paths can be configuration mistakes, so silently creating an arbitrary
+directory is too broad. The write still fails with `fs.ErrNotExist`, but the
+message names the requested path and its missing parent instead of the random
+temporary filename used for atomic replacement.
+
+**One known chromedp DOM warning is filtered at the source.** Chrome emits
+`DOM.adoptedStyleSheetsModified`, while chromedp 0.16 logs it as an unhandled
+node-cache event even though shots needs no node-cache update from it. The
+browser logger drops only that exact typed event and preserves every other
+internal error.
+
+## Stage 10 — feedback from agent use
+
+**`shots browser` is the launch half of `--cdp-url`.** Agents calling
+`javascript`, `html`, `accessibility` and `take` in turn paid a Chrome launch
+each time, while `--repeat` only helped `take` with one fixed URL. The cheaper
+fix is a command that launches Chrome once, prints its DevTools URL, and waits
+until it is interrupted or Chrome exits. Every command already accepts
+`--cdp-url`, so this gives warm reuse across all of them with no new protocol,
+socket, pool or configuration: Chrome is the resident process, and shots still
+is not a daemon. It takes the launch options `--cdp-url` rejects, and asks the
+kernel for a free loopback port when none is given because chromedp does not
+expose the URL of a browser it launched.
+
+**`--insecure` is a CDP call, not a browser argument.**
+`Security.setIgnoreCertificateErrors` is applied per page, so it works the same
+whether shots launched Chrome or attached to one through `--cdp-url`, where a
+launch argument could not apply. A self-signed development certificate came up
+in every round of agent use, which is worth a first-class flag over
+`--browser-arg=--ignore-certificate-errors`.
+
+**Local file access stays a browser argument.** `--allow-file-access-from-files`
+is process-wide, so it cannot follow a target: `multi` mixes `file://` and HTTP
+entries in one browser, and a browser reached through `--cdp-url` was started by
+someone else. Adding it automatically for file targets would change what a page
+may read without saying so. The README names the argument where local files are
+explained.
+
+**Padded regions are clamped to the document.** Chrome keeps a clip's size but
+drops its position when the origin is negative, so an element flush with a
+document edge plus `--padding` captured the top of the viewport instead. The
+region's origin now stops at zero and its far edges at the scroll extents, which
+also keeps the reported crop size honest.
+
+**`shot` is renamed `take`, and bare `shots` prints help.** `shots shot` was
+upstream's name, but read aloud it is a stutter, while `shots take
+example.com` says what happens. It stays the default command, so the resolution
+rule and every bare-URL invocation are unchanged. Running `shots` with no
+arguments used to run `take` and fail on the missing URL, which helps nobody;
+it now shows the command list, which is what someone typing only the program
+name is asking for.

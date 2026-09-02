@@ -1,5 +1,5 @@
 // Package process runs the external commands a configuration asks for: shell
-// steps, Python steps, and background servers.
+// steps and background servers.
 //
 // Every child starts in its own process group — a job object on Windows — so
 // that stopping it stops whatever it started, and not only the direct child.
@@ -235,22 +235,4 @@ func exit(err error) string {
 		return ""
 	}
 	return " (" + err.Error() + ")"
-}
-
-// Python resolves the interpreter for a python: step, in PLAN.md Section 9's
-// order: $SHOTS_PYTHON, python3, python. It is called only when a configuration
-// uses one, so a machine without Python runs everything else unaffected.
-func Python() (string, error) {
-	candidates := []string{os.Getenv("SHOTS_PYTHON"), "python3", "python"}
-	var tried []string
-	for _, name := range candidates {
-		if name == "" {
-			continue
-		}
-		if path, err := exec.LookPath(name); err == nil {
-			return path, nil
-		}
-		tried = append(tried, name)
-	}
-	return "", fmt.Errorf("no Python interpreter found (tried %s); set $SHOTS_PYTHON", strings.Join(tried, ", "))
 }

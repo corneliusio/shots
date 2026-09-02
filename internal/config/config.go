@@ -62,19 +62,18 @@ func (c Command) Empty() bool {
 }
 
 // Entry is one entry of a multi-shot run. Its parts run in field order — the
-// shell, Python and server steps first, then a screenshot if URL is set — so a
+// shell and server steps first, then a screenshot if URL is set — so a
 // single entry can prepare a page and capture it, as upstream does.
 //
 // Every part is optional except that an entry with no step must request a
 // screenshot. Empty steps and an empty URL are rejected during decoding, so a
 // non-zero value means "present".
 //
-// The key set is exactly upstream's, recorded in COMPAT.md. Settings such as
-// retina, scale factor, timeout, skip and fail are command-line flags upstream,
-// never per-entry keys, so they are not fields here.
+// The key set follows upstream's, recorded in COMPAT.md, with shots' documented
+// format key. Settings such as retina, scale factor, timeout, skip and fail are
+// command-line flags upstream, never per-entry keys, so they are not fields here.
 type Entry struct {
 	Sh     Command `yaml:"sh"`
-	Python string  `yaml:"python"`
 	Server Command `yaml:"server"`
 
 	URL string `yaml:"url"`
@@ -85,8 +84,9 @@ type Entry struct {
 	Width  int `yaml:"width"`
 	Height int `yaml:"height"`
 
-	Quality        int  `yaml:"quality"`
-	OmitBackground bool `yaml:"omit_background"`
+	Format         string `yaml:"format"`
+	Quality        int    `yaml:"quality"`
+	OmitBackground bool   `yaml:"omit_background"`
 
 	// Wait is milliseconds.
 	Wait       int    `yaml:"wait"`

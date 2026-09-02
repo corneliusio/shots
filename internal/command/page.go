@@ -26,7 +26,9 @@ type browserFlags struct {
 	BrowserArg    []string `sep:"none" placeholder:"ARG" help:"Extra Chrome command-line argument; repeatable."`
 	UserAgent     string   `help:"Override the browser's user agent."`
 	ReducedMotion bool     `help:"Emulate prefers-reduced-motion."`
+	ColorScheme   string   `name:"color-scheme" placeholder:"SCHEME" help:"Emulate prefers-color-scheme: light, dark, or no-preference."`
 	BypassCSP     bool     `name:"bypass-csp" help:"Ignore the page's Content-Security-Policy."`
+	Insecure      bool     `help:"Accept TLS certificates Chrome would reject, such as a self-signed one."`
 	AuthUsername  string   `help:"Username for HTTP basic authentication."`
 	AuthPassword  string   `help:"Password for HTTP basic authentication."`
 }
@@ -35,6 +37,8 @@ type browserFlags struct {
 // browser somebody else started cannot change how it was started.
 func (f browserFlags) validate() error {
 	switch {
+	case f.ColorScheme != "" && f.ColorScheme != "light" && f.ColorScheme != "dark" && f.ColorScheme != "no-preference":
+		return usagef("--color-scheme must be light, dark, or no-preference")
 	case f.CDPURL == "":
 		return nil
 	case f.BrowserPath != "":
@@ -127,10 +131,18 @@ func (f sessionFlags) browserOptions() browser.Options {
 func (f sessionFlags) newPage(ctx context.Context, e *env, bc *browser.Context, opts browser.PageOptions) (*browser.Page, error) {
 	opts.UserAgent = f.UserAgent
 	opts.ReducedMotion = f.ReducedMotion
+	opts.ColorScheme = f.ColorScheme
 	opts.BypassCSP = f.BypassCSP
+	opts.Insecure = f.Insecure
 	opts.Username, opts.Password = f.AuthUsername, f.AuthPassword
 	if f.LogConsole {
-		opts.OnConsole = func(m browser.Message) { fmt.Fprintf(e.stderr, "%s: %s\n", m.Type, m.Text) }
+		next := opts.OnConsole
+		opts.OnConsole = func(m browser.Message) {
+			if next != nil {
+				next(m)
+			}
+			fmt.Fprintf(e.stderr, "%s: %s\n", m.Type, m.Text)
+		}
 	}
 	return bc.NewPage(ctx, opts)
 }
@@ -156,54 +168,75 @@ func (f sessionFlags) check(e *env, status int, target string) error {
 // opened is closed again; on success the caller must call the returned
 // function.
 func (f pageFlags) open(ctx context.Context, e *env, target, script string, opts browser.PageOptions) (*browser.Page, func(), error) {
-	state, err := loadState(f.Auth)
+	session, err := f.connect(ctx, e, opts)
 	if err != nil {
 		return nil, nil, err
+	}
+	if _, err := f.loadStatus(ctx, e, session.page, target, script); err != nil {
+		session.close()
+		return nil, nil, err
+	}
+	return session.page, session.close, nil
+}
+
+// pageSession is the browser, isolated context and page opened for one command.
+// Most commands close it after one artifact; repeat mode navigates the same page
+// again before closing it.
+type pageSession struct {
+	browser *browser.Browser
+	context *browser.Context
+	page    *browser.Page
+}
+
+func (s *pageSession) close() {
+	s.page.Close()
+	s.context.Close()
+	s.browser.Close()
+}
+
+// connect opens the reusable part of a page lifecycle without navigating it.
+func (f pageFlags) connect(ctx context.Context, e *env, opts browser.PageOptions) (*pageSession, error) {
+	state, err := loadState(f.Auth)
+	if err != nil {
+		return nil, err
 	}
 	launch := f.browserOptions()
 	launch.Headed, launch.DevTools = f.Interactive || f.DevTools, f.DevTools
 	b, err := browser.Connect(ctx, launch)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	bc, err := b.NewContext(ctx, state)
 	if err != nil {
 		b.Close()
-		return nil, nil, err
+		return nil, err
 	}
 	page, err := f.newPage(ctx, e, bc, opts)
 	if err != nil {
 		bc.Close()
 		b.Close()
-		return nil, nil, err
+		return nil, err
 	}
-	closer := func() {
-		page.Close()
-		bc.Close()
-		b.Close()
-	}
-	if err := f.load(ctx, e, page, target, script); err != nil {
-		closer()
-		return nil, nil, err
-	}
-	return page, closer, nil
+	return &pageSession{browser: b, context: bc, page: page}, nil
 }
 
-func (f pageFlags) load(ctx context.Context, e *env, page *browser.Page, target, script string) error {
+// loadStatus navigates and prepares a page while retaining the main document's
+// status for structured capture reports.
+func (f pageFlags) loadStatus(ctx context.Context, e *env, page *browser.Page, target, script string) (int, error) {
 	status, err := page.Navigate(ctx, target)
 	if err != nil {
-		return err
+		return status, err
 	}
 	if err := f.check(e, status, target); err != nil {
-		return err
+		return status, err
 	}
 	if f.Interactive || f.DevTools {
 		fmt.Fprintln(e.stderr, "Hit <enter> to continue and close the browser window:")
 		if err := waitForEnter(ctx, e.stdin); err != nil {
-			return err
+			return status, err
 		}
 	}
-	return prepare(ctx, page, time.Duration(f.Wait)*time.Millisecond, script, f.WaitFor)
+	return status, prepare(ctx, page, time.Duration(f.Wait)*time.Millisecond, script, f.WaitFor)
 }
 
 // prepare runs the steps between a navigation and the artifact: a fixed wait,

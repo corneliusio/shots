@@ -46,9 +46,9 @@ func TestParseShot(t *testing.T) {
 	m := parse(t, `
 - url: https://example.com/
   output: example.png
+  format: png
   width: 800
   height: 600
-  quality: 80
   wait: 500
   wait_for: document.title
   javascript: document.body.classList.add('ready')
@@ -68,9 +68,9 @@ func TestParseShot(t *testing.T) {
 	want := config.Entry{
 		URL:        "https://example.com/",
 		Output:     "example.png",
+		Format:     "png",
 		Width:      800,
 		Height:     600,
-		Quality:    80,
 		Wait:       500,
 		WaitFor:    "document.title",
 		JavaScript: "document.body.classList.add('ready')",
@@ -91,8 +91,6 @@ func TestParseSteps(t *testing.T) {
 	m := parse(t, `
 - sh: echo hello
 - sh: [echo, hello]
-- python: |
-    print("hi")
 - server: python -m http.server 8000
 - server: [python, -m, http.server]
 - url: https://example.com/
@@ -100,7 +98,6 @@ func TestParseSteps(t *testing.T) {
 	want := []config.Entry{
 		{Sh: config.Command{Shell: "echo hello"}},
 		{Sh: config.Command{Args: []string{"echo", "hello"}}},
-		{Python: "print(\"hi\")\n"},
 		{Server: config.Command{Shell: "python -m http.server 8000"}},
 		{Server: config.Command{Args: []string{"python", "-m", "http.server"}}},
 		{URL: "https://example.com/"},
@@ -116,13 +113,11 @@ func TestParseStepAndShotInOneEntry(t *testing.T) {
 	m := parse(t, `
 - server: python -m http.server 8000
   sh: echo "Hello" > index.html
-  python: print("hi")
   output: from-shell.png
   url: http://localhost:8000/
 `)
 	want := []config.Entry{{
 		Sh:     config.Command{Shell: `echo "Hello" > index.html`},
-		Python: `print("hi")`,
 		Server: config.Command{Shell: "python -m http.server 8000"},
 		URL:    "http://localhost:8000/",
 		Output: "from-shell.png",
@@ -170,6 +165,13 @@ func TestParseErrors(t *testing.T) {
 			yaml: "- sh: echo hi\n  outupt: out.txt\n",
 			path: "entries[0].outupt",
 			line: 2,
+			msg:  "unknown field",
+		},
+		{
+			name: "python step is not supported",
+			yaml: "- python: print(1)\n",
+			path: "entries[0].python",
+			line: 1,
 			msg:  "unknown field",
 		},
 		{
@@ -273,13 +275,6 @@ func TestParseErrors(t *testing.T) {
 			msg:  "duplicate field",
 		},
 		{
-			name: "null python",
-			yaml: "- python:\n",
-			path: "entries[0].python",
-			line: 1,
-			msg:  "must not be empty",
-		},
-		{
 			name: "missing url",
 			yaml: "- output: out.png\n",
 			path: "entries[0].url",
@@ -349,6 +344,34 @@ func TestParseErrors(t *testing.T) {
 			path: "entries[0].quality",
 			line: 2,
 			msg:  "must be between 1 and 100",
+		},
+		{
+			name: "unknown image format",
+			yaml: "- url: https://example.com/\n  format: webp\n",
+			path: "entries[0].format",
+			line: 2,
+			msg:  "must be jpeg or png",
+		},
+		{
+			name: "format conflicts with extension",
+			yaml: "- url: https://example.com/\n  output: shot.png\n  format: jpeg\n",
+			path: "entries[0].format",
+			line: 3,
+			msg:  "conflicts with output extension .png",
+		},
+		{
+			name: "PNG quality",
+			yaml: "- url: https://example.com/\n  format: png\n  quality: 80\n",
+			path: "entries[0].quality",
+			line: 3,
+			msg:  "requires JPEG output",
+		},
+		{
+			name: "transparent JPEG",
+			yaml: "- url: https://example.com/\n  format: jpeg\n  omit_background: true\n",
+			path: "entries[0].omit_background",
+			line: 3,
+			msg:  "requires PNG output",
 		},
 		{
 			name: "javascript and js_file",

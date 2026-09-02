@@ -272,9 +272,17 @@ func TestWriteStreamFailureKeepsPreviousFile(t *testing.T) {
 
 func TestWriteMissingDirectory(t *testing.T) {
 	dir := t.TempDir()
-	err := artifact.Write(filepath.Join(dir, "nope", "out.png"), []byte("x"), artifact.Options{})
+	parent := filepath.Join(dir, "nope")
+	path := filepath.Join(parent, "out.png")
+	err := artifact.Write(path, []byte("x"), artifact.Options{})
 	if err == nil {
 		t.Fatal("expected an error; parent directories must not be created")
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("error = %v, want fs.ErrNotExist", err)
+	}
+	if message := err.Error(); !strings.Contains(message, "parent directory "+parent+" does not exist") {
+		t.Errorf("error = %q, want the missing parent directory", message)
 	}
 	assertOnly(t, dir)
 }

@@ -7,6 +7,9 @@
 // CDP takes a clip rectangle directly, so the div, its random id and the 300ms
 // settle it needed are not required.
 (spec) => {
+  const selectedElementsKey = Symbol.for('github.com/mostlyserious/shots.selected-elements');
+  delete globalThis[selectedElementsKey];
+
   const els = [];
   const every = () => Array.from(document.getElementsByTagName('*'));
   const predicate = (src) => new Function('el', `return (${src})`);
@@ -29,6 +32,8 @@
   }
   if (els.length === 0) return { error: 'no elements matched' };
 
+  globalThis[selectedElementsKey] = els;
+
   let top = Infinity, left = Infinity, bottom = -Infinity, right = -Infinity;
   for (const el of els) {
     const r = el.getBoundingClientRect();
@@ -37,11 +42,17 @@
     bottom = Math.max(bottom, r.bottom);
     right = Math.max(right, r.right);
   }
+  // Padding is clamped to the document: Chrome keeps a clip's size but drops
+  // its position when the origin is negative, which turned a padded crop of an
+  // edge-flush element into the top of the viewport.
   const pad = spec.padding ?? 0;
+  const root = document.documentElement;
+  const x = Math.max(0, left + window.scrollX - pad);
+  const y = Math.max(0, top + window.scrollY - pad);
   return {
-    x: left + window.scrollX - pad,
-    y: top + window.scrollY - pad,
-    width: right - left + 2 * pad,
-    height: bottom - top + 2 * pad,
+    x,
+    y,
+    width: Math.min(right + window.scrollX + pad, Math.max(root.scrollWidth, root.clientWidth)) - x,
+    height: Math.min(bottom + window.scrollY + pad, Math.max(root.scrollHeight, root.clientHeight)) - y,
   };
 }

@@ -12,7 +12,6 @@ The project will:
 - Preserve familiar `shot-scraper` commands and flags where practical.
 - Document differences where Playwright behavior cannot or should not be reproduced.
 - Use `ffmpeg` only for video encoding.
-- Require Python only when a YAML file explicitly contains a legacy `python:` step.
 
 The upstream compatibility reference is `shot-scraper` 1.11 at commit `177f5abb32add7622d5152eb7064a2ce47dd2fbf` (the "Release 1.11" commit).
 
@@ -20,7 +19,7 @@ The upstream compatibility reference is `shot-scraper` 1.11 at commit `177f5abb3
 
 ### Goals
 
-- Capture PNG and JPEG screenshots.
+- Capture JPEG screenshots by default, with explicit lossless PNG output.
 - Support URLs and local HTML files.
 - Capture complete pages, fixed viewports, elements, and combined selector regions.
 - Execute JavaScript and wait for JavaScript conditions.
@@ -30,6 +29,8 @@ The upstream compatibility reference is `shot-scraper` 1.11 at commit `177f5abb3
 - Record scripted browser demonstrations from YAML storyboards.
 - Ship native macOS, Linux, and Windows binaries.
 - Keep stdout clean for binary and machine-readable output.
+- Give agents a bounded JSON capture report without requiring separate log parsing.
+- Reuse one browser session for explicitly triggered screenshot iteration.
 - Clean up Chrome, servers, and child processes after errors or interrupts.
 
 ### Non-goals
@@ -38,7 +39,7 @@ The upstream compatibility reference is `shot-scraper` 1.11 at commit `177f5abb3
 - Full Playwright selector compatibility.
 - Byte-identical output across Chrome versions or operating systems.
 - Exact Playwright accessibility or HAR formatting.
-- Sandboxing user-provided shell, Python, or JavaScript code.
+- Sandboxing user-provided shell or JavaScript code.
 - Automatic installation of system packages.
 - Concurrent batch capture in the first release.
 - A web interface, daemon, or plugin system.
@@ -51,7 +52,7 @@ Go packages:
 - `github.com/alecthomas/kong` for typed commands and flags.
 - `go.yaml.in/yaml/v3` for YAML decoding. v3 is the stable line; v4 is still a release candidate (`v4.0.0-rc.6` as of 2026-08) and will be adopted only after a stable release. Migration cost is low because all YAML decoding is confined to the `config` package.
 
-YAML decoding strategy: stock `KnownFields(true)` strict decoding is not sufficient for the multi-shot and storyboard formats, because their entries are union types (a screenshot request *or* `sh:` / `python:` / `server:`). The `config` package will decode via `yaml.Node`: classify each entry by its discriminating keys, decode into the matching typed struct strictly, and build precise field paths (`entries[3].server`) for error messages. This is planned work, not an afterthought.
+YAML decoding strategy: stock `KnownFields(true)` strict decoding is not sufficient for the multi-shot and storyboard formats, because their entries are union types (a screenshot request *or* `sh:` / `server:`). The `config` package will decode via `yaml.Node`: classify each entry by its discriminating keys, decode into the matching typed struct strictly, and build precise field paths (`entries[3].server`) for error messages. This is planned work, not an afterthought.
 
 Use the standard library for:
 
@@ -81,7 +82,7 @@ internal/
   artifact/        filenames, stdout and atomic file writes
   config/          multi-shot and storyboard YAML models and union decoding
   har/             network-event correlation and HAR generation
-  process/         shell, Python, server and ffmpeg lifecycle
+  process/         shell, server and ffmpeg lifecycle
   video/           storyboard execution and screencast processing
   testsite/        deterministic browser integration server
 
@@ -106,7 +107,7 @@ Resolve Chrome in this order:
 1. `--browser-path`
 2. `SHOTS_BROWSER_PATH`
 3. A browser downloaded previously by `shots install`
-4. Chrome or Chromium found on `PATH`
+4. Chrome Headless Shell, Chrome or Chromium found on `PATH`
 5. Known platform application locations
 
 If no browser is found, report every location checked and exit with status `1`.
@@ -115,10 +116,10 @@ Support `--cdp-url` for connecting to an existing browser. It will be mutually e
 
 ### Browser installation
 
-`shots install` will download a pinned Chrome for Testing build into the user cache:
+`shots install` will download a pinned Chrome for Testing Headless Shell build into the user cache:
 
 ```text
-<user-cache-directory>/shots/chrome/<version>/<platform>/
+<user-cache-directory>/shots/chrome-headless-shell/<version>/<platform>/
 ```
 
 It will:
@@ -130,7 +131,7 @@ It will:
 - Never call Homebrew, Nix, apt, or another system package manager.
 - Report missing Linux libraries without trying to install them.
 
-Checksum provenance: Chrome for Testing's `known-good-versions` endpoints publish URLs but **no hashes**. The project therefore computes per-platform SHA-256 checksums itself when pinning a version, trusting that initial download, and commits them to the manifest. Every version bump repeats this step for all platforms. A small maintainer script (`go run ./tools/pin-chrome`) will fetch all platform archives, compute hashes, and rewrite the manifest, so bumps stay a one-command chore.
+Checksum provenance: Chrome for Testing's `known-good-versions` endpoints publish URLs but **no hashes**. The project therefore computes per-platform SHA-256 checksums itself when pinning a Headless Shell version, trusting that initial download, and commits them to the manifest. Every version bump repeats this step for all platforms. A small maintainer script (`go run ./tools/pin-chrome`) will fetch all platform archives, compute hashes, and rewrite the manifest, so bumps stay a one-command chore.
 
 ### Diagnostics
 
@@ -142,7 +143,6 @@ Add `shots doctor` to report:
 - CDP connectivity
 - Cache-directory permissions
 - `ffmpeg` availability
-- Python availability
 - Any version or dependency problems
 
 ## 6. Common browser lifecycle
@@ -158,11 +158,12 @@ Every browser command will follow the same sequence:
 7. Navigate to the page.
 8. Apply `--skip` or `--fail` HTTP policy.
 9. Run waits and JavaScript.
-10. Produce the requested artifact.
-11. Flush HAR or video data.
-12. Close the browser context.
-13. Close Chrome if `shots` launched it.
-14. Clean temporary files and child processes.
+10. When requested, stabilize fonts, images, visual motion, and paint timing.
+11. Produce the requested artifact and structured capture report.
+12. Flush HAR or video data.
+13. Close the browser context.
+14. Close Chrome if `shots` launched it.
+15. Clean temporary files and child processes.
 
 `SIGINT` and `SIGTERM` will use the same cleanup path.
 
@@ -172,15 +173,15 @@ Default timeouts: navigation and script execution default to 30 seconds each, ma
 
 ### Command-name versus URL resolution
 
-Because `shot` is the default command, a first argument like `html` or `multi` is ambiguous. The rule: **subcommand names always win**. `shots html` invokes the `html` command (and errors on the missing URL argument). To screenshot a host or file whose name collides with a subcommand, use the explicit form (`shots shot html`) or a path form (`shots ./html`). This rule is documented in `--help` and in the CLI reference.
+Because `take` is the default command, a first argument like `html` or `multi` is ambiguous. The rule: **subcommand names always win**. `shots html` invokes the `html` command (and errors on the missing URL argument). To screenshot a host or file whose name collides with a subcommand, use the explicit form (`shots take html`) or a path form (`shots ./html`). This rule is documented in `--help` and in the CLI reference.
 
-### `shots shot URL`
+### `shots take URL`
 
-`shot` will be the default command:
+`take` will be the default command, and `shots` with no arguments prints the help:
 
 ```bash
 shots https://example.com
-shots shot https://example.com
+shots take https://example.com
 ```
 
 Implement:
@@ -189,8 +190,8 @@ Implement:
 - Existing paths become absolute `file://` URLs.
 - Default width is `1280`.
 - Omitted height means full-page capture.
-- PNG and JPEG output.
-- JPEG quality.
+- JPEG quality 80 by default and explicit lossless PNG output.
+- Speed-optimized Chrome image encoding.
 - Transparent PNG backgrounds.
 - Device scale factor and retina shortcut.
 - Fixed viewport capture.
@@ -203,6 +204,7 @@ Implement:
 - Fixed waits and JavaScript-condition waits.
 - Request and console logging.
 - Reduced-motion emulation.
+- Explicit light, dark, or no-preference color-scheme emulation.
 - User-agent override.
 - Browser arguments.
 - Basic HTTP authentication.
@@ -211,6 +213,10 @@ Implement:
 - HTTP failure and skip policies.
 - HAR recording via `--har`, `--har-zip`, and `--har-file`, matching upstream's flags on `shot`.
 - Binary output through `-o -`.
+- Bounded JSON capture reports with console messages, uncaught page exceptions, failed requests, final URL, status, duration, output, and errors.
+- Opt-in stabilization through `--stable`: reduced motion, disabled animations and transitions, hidden carets, font and image readiness, and two paint frames.
+- Stdin-triggered `--repeat` capture that reuses one browser, context, and page while keeping the URL and options fixed.
+- Accept a rejected TLS certificate with `--insecure`, applied over CDP so it also works through `--cdp-url`.
 
 Automatic filenames will receive `.1`, `.2`, and later suffixes when needed. Explicit output paths may be protected with `--no-clobber`.
 
@@ -315,7 +321,6 @@ The YAML root will be a list. Entries may contain:
 
 - A screenshot request
 - `sh:`
-- `python:`
 - `server:`
 
 Rules:
@@ -325,9 +330,10 @@ Rules:
 - Execute entries in source order.
 - Reuse one Chrome process.
 - Use a fresh page for each screenshot.
-- Stop after a failed shell or Python step.
+- Stop after a failed shell step.
 - Support no-clobber and output filtering.
 - Support session-wide HAR recording (`--har`, `--har-zip`, `--har-file`, matching upstream).
+- Support session-wide stabilization and one JSON Lines report per selected shot.
 - Wait up to 30 seconds for configured servers.
 - Stop servers after success, error, timeout, or interrupt.
 - Preserve the server only with `--leave-server`.
@@ -348,7 +354,6 @@ Retain these actions:
 - `javascript` and `js`
 - `screenshot`
 - `sh`
-- `python`
 
 Video flow:
 
@@ -368,6 +373,22 @@ Video flow:
 Frame capture modes. `Page.startScreencast` delivers compressed frames at irregular intervals, only when content changes, and drops frames under load — it may not meet the quality bar for demo videos. The alternative is deterministic frame-by-frame capture with `HeadlessExperimental.beginFrame` plus virtual time, which yields full-quality frames at a chosen fps but requires headless mode. Phase 1 evaluates both against the same storyboard; the plan does not commit to screencast. If both survive the spike, screencast becomes the headed-mode path and `beginFrame` the default headless path.
 
 If encoding fails, return status `1` and preserve the frame directory for diagnosis. Add `--keep-frames` for deliberate preservation.
+
+### `shots browser`
+
+Launch Chrome once for other commands to share:
+
+```bash
+shots browser > browser.url &
+shots take https://example.com --cdp-url "$(cat browser.url)"
+```
+
+Implement:
+
+- Launch with the same discovery, `--browser-path` and `--browser-arg` options as every other command.
+- Print the DevTools URL, on a loopback port that is free or given by `--port`, as the only line on stdout.
+- Stay in the foreground until interrupted or until Chrome exits, then close Chrome.
+- No watcher, socket, pool or request protocol: Chrome is the resident process, and every other command attaches with `--cdp-url`.
 
 ## 8. Configuration contracts
 
@@ -392,14 +413,6 @@ Configuration supplied through stdin resolves relative paths against the current
 ## 9. Process lifecycle
 
 Shell command strings run through the platform shell. Argument arrays execute directly.
-
-Python resolution order:
-
-1. `SHOTS_PYTHON`
-2. `python3`
-3. `python`
-
-A missing Python interpreter is an error only when the configuration uses `python:`.
 
 Process-group management: `sh:` and `server:` commands routinely spawn grandchildren (a shell running `npm start` that starts node, which starts workers). Killing only the direct child leaks the rest. Therefore:
 
@@ -434,11 +447,11 @@ Exit codes:
 ## 11. Security rules
 
 - Never log credentials, cookies, storage values, or authorization headers.
-- Treat `sh:`, `python:`, and arbitrary JavaScript (including `gh:` remote scripts) as trusted user code.
+- Treat `sh:` and arbitrary JavaScript (including `gh:` remote scripts) as trusted user code.
 - Clearly document that these features are not sandboxed.
 - Prevent path traversal during HAR extraction.
 - Require explicit output paths for operations that could overwrite unrelated files.
-- Download managed Chrome only after an explicit `shots install`.
+- Download the managed Chrome Headless Shell only after an explicit `shots install`.
 - Verify downloaded browser archives against the committed manifest checksums before extraction.
 - Never invoke a system package manager.
 
@@ -491,7 +504,7 @@ Implement:
 - Shared browser lifecycle
 - URL normalization
 - Atomic artifact writes
-- `shot`
+- `take`
 - `install` (with the checksum-pinning maintainer script)
 - `doctor`
 
@@ -517,7 +530,7 @@ Implement:
 - `auth` with Playwright-compatible state files
 - State restoration (cookies plus per-origin storage)
 - `accessibility`
-- `har` command and `--har` flags on `shot`
+- `har` command and `--har` flags on `take`
 - ZIP and resource extraction
 
 Release target: `v0.3.0`
@@ -527,7 +540,7 @@ Release target: `v0.3.0`
 Implement:
 
 - Strict multi-shot YAML with union decoding and field-path errors
-- Shell and Python steps with process-group cleanup
+- Shell steps with process-group cleanup
 - Server lifecycle
 - No-clobber
 - Output filtering
@@ -593,6 +606,12 @@ Use only local deterministic pages for required CI tests:
 - Selector geometry
 - Authentication cookies and local storage, including multi-origin restore
 - Network failures
+- Structured success and failure reports, including bounded diagnostics
+- Browser-generated console errors such as failed resource loads
+- Explicit light and dark color-scheme emulation
+- Stable capture after delayed image loading
+- Stable multi-shot capture with per-entry JSON Lines reports
+- Repeated capture with browser-session state retained
 - Accessibility roles and states
 - Storyboard interactions
 
@@ -607,7 +626,7 @@ Verify:
 - Server termination
 - Atomic output
 - Authentication file permissions
-- Missing browser, Python, and ffmpeg errors
+- Missing browser and ffmpeg errors
 
 ### Visual tests
 

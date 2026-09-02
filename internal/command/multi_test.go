@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mostlyserious/shots/internal/browser"
 	"github.com/mostlyserious/shots/internal/config"
 	"github.com/mostlyserious/shots/internal/har"
 )
@@ -135,49 +136,6 @@ func TestMultiShellStep(t *testing.T) {
 	if strings.TrimSpace(string(data)) != "written" {
 		t.Errorf("written.txt = %q", data)
 	}
-}
-
-func TestMultiPythonStep(t *testing.T) {
-	t.Run("a step runs through the resolved interpreter", func(t *testing.T) {
-		if _, err := exec.LookPath("python3"); err != nil {
-			t.Skip("no python3")
-		}
-		dir := t.TempDir()
-		out, err := json.Marshal(filepath.Join(dir, "python.txt"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		cfg := writeConfig(t, dir, "- python: open("+string(out)+", \"w\").write(\"ok\")\n")
-		if got := run(t, "multi", cfg); got.code != exitOK {
-			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
-		}
-		if !exists(t, dir, "python.txt") {
-			t.Error("the python step did not run")
-		}
-	})
-
-	// PLAN.md Section 9: a missing interpreter is an error only for a
-	// configuration that asks for one.
-	t.Run("a missing interpreter is reported", func(t *testing.T) {
-		t.Setenv("SHOTS_PYTHON", "shots-no-such-python")
-		t.Setenv("PATH", t.TempDir())
-		dir := t.TempDir()
-		cfg := writeConfig(t, dir, "- python: print(1)\n")
-		got := run(t, "multi", cfg)
-		if got.code != exitFailure || !strings.Contains(got.stderr, "no Python interpreter") {
-			t.Fatalf("exit %d; stderr:\n%s", got.code, got.stderr)
-		}
-	})
-
-	t.Run("a configuration without python needs none", func(t *testing.T) {
-		t.Setenv("SHOTS_PYTHON", "shots-no-such-python")
-		t.Setenv("PATH", t.TempDir())
-		dir := t.TempDir()
-		cfg := writeConfig(t, dir, "- sh: "+childArgs(t, "write", filepath.Join(dir, "one.txt"), "1")+"\n")
-		if got := run(t, "multi", cfg); got.code != exitOK {
-			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
-		}
-	})
 }
 
 func TestMultiShots(t *testing.T) {
@@ -346,6 +304,41 @@ func TestMultiShots(t *testing.T) {
 			t.Errorf("want only the entry with an output written, found %v", names)
 		}
 	})
+}
+
+func TestMultiStableReports(t *testing.T) {
+	srv := site(t)
+	dir := t.TempDir()
+	cfg := writeConfig(t, dir, strings.Join([]string{
+		"- url: " + srv.URL + "/console.html",
+		"  output: first.png",
+		"  height: 100",
+		`  wait_for: "matchMedia('(prefers-reduced-motion: reduce)').matches"`,
+		"- url: " + srv.URL + "/geometry.html",
+		"  output: missing.png",
+		"  selector: '#absent'",
+		"",
+	}, "\n"))
+	got := run(t, "multi", cfg, "--stable", "--report", "-")
+	if got.code != exitFailure {
+		t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitFailure, got.stderr)
+	}
+	lines := slices.Collect(strings.Lines(strings.TrimSpace(string(got.stdout))))
+	if len(lines) != 2 {
+		t.Fatalf("reports = %d, want 2:\n%s", len(lines), got.stdout)
+	}
+	first, second := readShotReport(t, []byte(lines[0])), readShotReport(t, []byte(lines[1]))
+	if !first.OK || first.Output != filepath.Join(dir, "first.png") {
+		t.Errorf("first report = %+v", first)
+	}
+	if !slices.ContainsFunc(first.Console, func(message browser.Message) bool {
+		return message.Type == "log" && message.Text == "log message"
+	}) {
+		t.Errorf("first console = %+v, want log message", first.Console)
+	}
+	if second.OK || second.Error == "" || second.Output != filepath.Join(dir, "missing.png") {
+		t.Errorf("second report = %+v", second)
+	}
 }
 
 // A server is started, waited for, used, and stopped again.

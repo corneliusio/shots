@@ -15,7 +15,8 @@
       (async () => {
         for (const path of ['/redirect?to=/redirected.html', '/status/404', '/reset']) {
           try {
-            await fetch(path);
+            const response = await fetch(path);
+            await response.text();
           } catch (error) {
             // A dropped connection rejects; the HAR records the failure.
           }

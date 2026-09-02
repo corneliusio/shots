@@ -146,7 +146,11 @@ func WriteStream(path string, r io.Reader, opts Options) error {
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".shots-*")
 	if err != nil {
-		return err
+		parent := filepath.Dir(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("writing %s: parent directory %s does not exist: %w", path, parent, fs.ErrNotExist)
+		}
+		return fmt.Errorf("creating temporary file for %s: %w", path, err)
 	}
 	// Removes the temporary file on every failure path; after a successful
 	// rename there is nothing left to remove.

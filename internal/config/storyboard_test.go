@@ -19,7 +19,6 @@ func TestParseStoryboard(t *testing.T) {
 	s, err := ParseStoryboard([]byte(`output: demo.webm
 url: http://localhost:8000/
 sh: echo hi
-python: print("hi")
 server: [python, -m, http.server]
 viewport:
   width: 800
@@ -54,7 +53,6 @@ scenes:
   - screenshot: step.png
   - screenshot: {output: el.png, selector: h1, full_page: true}
   - sh: echo scene
-  - python: print(1)
 `), "/base")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +80,7 @@ scenes:
 	for i, a := range scene.Do {
 		kinds[i] = a.Kind
 	}
-	want := "click type press scroll scroll pause wait_for wait_for_url open javascript javascript screenshot screenshot sh python"
+	want := "click type press scroll scroll pause wait_for wait_for_url open javascript javascript screenshot screenshot sh"
 	if got := strings.Join(kinds, " "); got != want {
 		t.Errorf("kinds = %q, want %q", got, want)
 	}
@@ -117,8 +115,8 @@ scenes:
 	if do[12].Selector != "h1" || !do[12].FullPage {
 		t.Errorf("screenshot = %+v", do[12])
 	}
-	if do[13].Command.Shell != "echo scene" || do[14].Code != "print(1)" {
-		t.Errorf("steps = %+v %+v", do[13], do[14])
+	if do[13].Command.Shell != "echo scene" {
+		t.Errorf("step = %+v", do[13])
 	}
 }
 
@@ -175,6 +173,7 @@ func TestParseStoryboardErrors(t *testing.T) {
 		{"empty", "", "storyboard is empty"},
 		{"not a mapping", "- a\n", "line 1: expected a mapping, got a list"},
 		{"unknown key", valid + "nope: 1\n", "nope (line 7): unknown field"},
+		{"python setup is not supported", valid + "python: print(1)\n", "python (line 7): unknown field"},
 		{"no scenes", "output: a.webm\nurl: http://x/\nscenes: []\n", "scenes (line 3): must list at least one scene"},
 		{"no url", "output: a.webm\nscenes:\n- do: []\n", "url (line 1): required unless the first scene opens one"},
 		{"scene url ok", "output: a.webm\nscenes:\n- open: http://x/\n", ""},
@@ -185,11 +184,17 @@ func TestParseStoryboardErrors(t *testing.T) {
 		{"negative wait", valid + "wait: -1\n", "wait (line 7): must not be negative"},
 		{"scenes not a list", "output: a.webm\nurl: http://x/\nscenes: {}\n", "scenes (line 3): expected a list, got a mapping"},
 		{"unknown scene key", "output: a.webm\nurl: http://x/\nscenes:\n- nope: 1\n", "scenes[0].nope (line 4): unknown field"},
+		{"python scene setup is not supported", "output: a.webm\nurl: http://x/\nscenes:\n- python: print(1)\n", "scenes[0].python (line 4): unknown field"},
 		{"do not a list", "output: a.webm\nurl: http://x/\nscenes:\n- do: 3\n", "scenes[0].do (line 4): expected a list, got a value"},
 		{
 			"unknown action",
 			"output: a.webm\nurl: http://x/\nscenes:\n- do:\n  - dance: now\n",
 			"scenes[0].do[0].dance (line 5): unknown action",
+		},
+		{
+			"python action is not supported",
+			"output: a.webm\nurl: http://x/\nscenes:\n- do:\n  - python: print(1)\n",
+			"scenes[0].do[0].python (line 5): unknown action",
 		},
 		{
 			"two keys",

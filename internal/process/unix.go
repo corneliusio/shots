@@ -54,5 +54,5 @@ func (t *tree) signal(sig syscall.Signal) error {
 }
 
 // shellCmd runs a command line through the platform shell, as PLAN.md Section 9
-// requires and as a Python subprocess with shell=True does.
+// requires.
 func shellCmd(line string) *exec.Cmd { return exec.Command("/bin/sh", "-c", line) }

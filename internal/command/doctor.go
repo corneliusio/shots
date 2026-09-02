@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/mostlyserious/shots/internal/browser"
-	"github.com/mostlyserious/shots/internal/process"
 )
 
 type doctorCmd struct {
@@ -41,12 +40,11 @@ func (c *doctorCmd) Run(ctx context.Context, e *env) error {
 	r := &checks{w: e.stdout}
 	r.line("shots", "%s", Version)
 	r.line("platform", "%s/%s", runtime.GOOS, runtime.GOARCH)
-	r.line("pinned", "Chrome %s for %s", browser.Pinned().Version, orNone(browser.Platform(), "unsupported platform"))
+	r.line("pinned", "%s %s for %s", browser.ProductName, browser.Pinned().Version, orNone(browser.Platform(), "unsupported platform"))
 
 	c.checkBrowser(ctx, r)
 	c.checkCache(r)
 	checkTool(r, "ffmpeg", "ffmpeg is only needed for the video command", "ffmpeg")
-	checkPython(r)
 
 	if r.problems > 0 {
 		return fmt.Errorf("%d problem(s) found", r.problems)
@@ -113,18 +111,6 @@ func checkTool(r *checks, label, note string, names ...string) {
 		}
 	}
 	r.line(label, "not found (%s)", note)
-}
-
-// checkPython reports the interpreter a python: step would run. It asks
-// [process.Python] rather than repeating PLAN.md Section 9's order, so the
-// report cannot disagree with what multi does.
-func checkPython(r *checks) {
-	path, err := process.Python()
-	if err != nil {
-		r.line("python", "not found (Python is only needed for python: steps)")
-		return
-	}
-	r.line("python", "%s", path)
 }
 
 func orNone(value, fallback string) string {

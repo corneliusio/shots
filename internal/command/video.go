@@ -123,10 +123,10 @@ func (r *recording) run(ctx context.Context) error {
 	return r.finish(ctx)
 }
 
-// setup runs the storyboard's own preparation: a shell step, a Python step, and
-// a server that runs for as long as the recording does.
+// setup runs the storyboard's shell preparation and a server that runs for as
+// long as the recording does.
 func (r *recording) setup(ctx context.Context) error {
-	if err := r.steps(ctx, r.story.Sh, r.story.Python); err != nil {
+	if err := r.runStep(ctx, r.story.Sh); err != nil {
 		return err
 	}
 	if r.story.Server.Empty() {
@@ -163,21 +163,12 @@ func (r *recording) startURL() string {
 	return r.story.Scenes[0].Open
 }
 
-// steps runs a shell and a Python command, in that order.
-func (r *recording) steps(ctx context.Context, sh config.Command, python string) error {
-	if !sh.Empty() {
-		if err := process.Run(ctx, r.command(sh)); err != nil {
-			return err
-		}
-	}
-	if python == "" {
+// runStep runs a configured shell command when one is present.
+func (r *recording) runStep(ctx context.Context, sh config.Command) error {
+	if sh.Empty() {
 		return nil
 	}
-	interpreter, err := process.Python()
-	if err != nil {
-		return err
-	}
-	return process.Run(ctx, r.command(config.Command{Args: []string{interpreter, "-c", python}}))
+	return process.Run(ctx, r.command(sh))
 }
 
 // command turns a configured command into one to run: in the storyboard's own
@@ -258,7 +249,7 @@ func (r *recording) scene(ctx context.Context, i int, scene config.Scene) error 
 		name = fmt.Sprintf("Scene %d", i+1)
 	}
 	r.env.progress(r.cmd.Silent, "Scene %d: %s", i+1, name)
-	if err := r.steps(ctx, scene.Sh, scene.Python); err != nil {
+	if err := r.runStep(ctx, scene.Sh); err != nil {
 		return err
 	}
 	if scene.Open != "" {
@@ -303,8 +294,6 @@ func (r *recording) act(ctx context.Context, a config.Action) error {
 		return r.screenshot(ctx, a)
 	case "sh":
 		return process.Run(ctx, r.command(a.Command))
-	case "python":
-		return r.steps(ctx, config.Command{}, a.Code)
 	}
 	return fmt.Errorf("unknown action %q", a.Kind)
 }
@@ -341,8 +330,13 @@ func (r *recording) waitFor(ctx context.Context, selector, pattern string) error
 
 func (r *recording) screenshot(ctx context.Context, a config.Action) error {
 	// The output extension picks the format, as it does on shot and in a
-	// multi-shot configuration.
-	shot := browser.ShotOptions{FullPage: a.FullPage, JPEG: isJPEGPath(a.Output)}
+	// multi-shot configuration. A storyboard action has no separate format or
+	// quality fields, so an unrecognized extension gets the JPEG default.
+	encoding, err := screenshotEncodingFor(a.Output, "", 0, false)
+	if err != nil {
+		return err
+	}
+	shot := browser.ShotOptions{FullPage: a.FullPage, JPEG: encoding.jpeg, Quality: encoding.quality}
 	if a.Selector != "" {
 		region, err := r.page.Region(ctx, browser.Selectors{CSS: []string{a.Selector}})
 		if err != nil {

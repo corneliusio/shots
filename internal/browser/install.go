@@ -18,12 +18,16 @@ import (
 	"strings"
 )
 
-// chromeManifest pins one Chrome for Testing build per platform. Chrome for
-// Testing publishes download URLs but no hashes, so the checksums are computed
-// once by tools/pin-chrome and committed here; see PLAN.md Section 5.
+// chromeManifest pins one Chrome for Testing Headless Shell build per platform.
+// Chrome for Testing publishes download URLs but no hashes, so the checksums
+// are computed once by tools/pin-chrome and committed here; see PLAN.md Section
+// 5.
 //
 //go:embed chrome.json
 var chromeManifest []byte
+
+// ProductName is the browser artifact installed by shots install.
+const ProductName = "Chrome Headless Shell"
 
 // Manifest is the pinned browser manifest, in the shape of chrome.json.
 type Manifest struct {
@@ -74,16 +78,16 @@ func pinnedBuild() (Build, error) {
 	platform := Platform()
 	build, ok := pinned.Platforms[platform]
 	if !ok || build.URL == "" {
-		return Build{}, fmt.Errorf("no pinned Chrome for %s/%s", runtime.GOOS, runtime.GOARCH)
+		return Build{}, fmt.Errorf("no pinned %s for %s/%s", ProductName, runtime.GOOS, runtime.GOARCH)
 	}
 	build.platform = platform
 	return build, nil
 }
 
-// Install downloads and extracts the pinned Chrome for Testing build into the
-// user cache directory and returns the path of its executable. An existing
-// install is reused unless force is set. Progress is written to progress, which
-// may be nil.
+// Install downloads and extracts the pinned Chrome for Testing Headless Shell
+// build into the user cache directory and returns the path of its executable.
+// An existing install is reused unless force is set. Progress is written to
+// progress, which may be nil.
 func Install(ctx context.Context, force bool, progress io.Writer) (string, error) {
 	build, err := pinnedBuild()
 	if err != nil {
@@ -96,7 +100,7 @@ func Install(ctx context.Context, force bool, progress io.Writer) (string, error
 	exe := filepath.Join(dir, filepath.FromSlash(build.Binary))
 	if !force {
 		if _, err := os.Stat(exe); err == nil {
-			logf(progress, "Chrome %s already installed at %s", pinned.Version, exe)
+			logf(progress, "%s %s already installed at %s", ProductName, pinned.Version, exe)
 			return exe, nil
 		} else if !missing(err) {
 			return "", err
@@ -106,7 +110,7 @@ func Install(ctx context.Context, force bool, progress io.Writer) (string, error
 		return "", err
 	}
 
-	logf(progress, "Downloading Chrome %s for %s", pinned.Version, build.platform)
+	logf(progress, "Downloading %s %s for %s", ProductName, pinned.Version, build.platform)
 	archive, err := download(ctx, build)
 	if err != nil {
 		return "", err
@@ -116,7 +120,7 @@ func Install(ctx context.Context, force bool, progress io.Writer) (string, error
 
 	// Extract beside the destination and rename, so an interrupted install
 	// never leaves a half-extracted browser where discovery would find it.
-	staging, err := os.MkdirTemp(filepath.Dir(dir), ".shots-chrome-*")
+	staging, err := os.MkdirTemp(filepath.Dir(dir), ".shots-headless-shell-*")
 	if err != nil {
 		return "", err
 	}
@@ -137,7 +141,7 @@ func Install(ctx context.Context, force bool, progress io.Writer) (string, error
 	if _, err := os.Stat(exe); err != nil {
 		return "", fmt.Errorf("archive did not contain %s: %w", build.Binary, err)
 	}
-	logf(progress, "Installed Chrome %s to %s", pinned.Version, exe)
+	logf(progress, "Installed %s %s to %s", ProductName, pinned.Version, exe)
 	return exe, nil
 }
 
@@ -162,7 +166,7 @@ func download(ctx context.Context, build Build) (*os.File, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s: %s", build.URL, resp.Status)
 	}
-	f, err := os.CreateTemp("", "shots-chrome-*.zip")
+	f, err := os.CreateTemp("", "shots-headless-shell-*.zip")
 	if err != nil {
 		return nil, err
 	}

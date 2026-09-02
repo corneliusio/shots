@@ -40,13 +40,14 @@ var errSkipped = errors.New("skipped")
 // resolution rule is visible to users.
 const description = `Take automated screenshots with Chrome.
 
-shot is the default command, so "shots example.com" takes a screenshot. A first
+take is the default command, so "shots example.com" takes a screenshot, and
+shots alone prints this help. A first
 argument that names a command always selects that command: capture a host that
-collides with one as "shots shot html" or "shots ./html".`
+collides with one as "shots take html" or "shots ./html".`
 
 // cli is the whole command surface.
 type cli struct {
-	Shot          shotCmd          `cmd:"" help:"Take a screenshot of a page or part of one."`
+	Take          shotCmd          `cmd:"" help:"Take a screenshot of a page or part of one."`
 	Multi         multiCmd         `cmd:"" help:"Run the shots, shell steps and servers of a YAML configuration."`
 	JavaScript    javascriptCmd    `cmd:"" name:"javascript" help:"Run JavaScript on a page and print the result."`
 	HTML          htmlCmd          `cmd:"" name:"html" help:"Print the rendered HTML of a page or an element."`
@@ -55,8 +56,9 @@ type cli struct {
 	HAR           harCmd           `cmd:"" name:"har" help:"Record the network traffic of a page as a HAR file."`
 	Video         videoCmd         `cmd:"" help:"Record a WebM video from a YAML storyboard."`
 	Auth          authCmd          `cmd:"" help:"Sign in to a site and save the authentication state."`
-	Install       installCmd       `cmd:"" help:"Download the pinned Chrome for Testing build."`
+	Install       installCmd       `cmd:"" help:"Download the pinned Chrome Headless Shell build."`
 	Doctor        doctorCmd        `cmd:"" help:"Report the browser and tools shots will use."`
+	Browser       browserCmd       `cmd:"" help:"Launch Chrome once for other commands to share through --cdp-url."`
 
 	Version kong.VersionFlag `help:"Print the version and exit."`
 	Help    helpFlag         `help:"Show context-sensitive help."`
@@ -155,16 +157,17 @@ func commandNames(parser *kong.Kong) []string {
 	return names
 }
 
-// resolve applies the default-command rule: shot runs when the first argument
+// resolve applies the default-command rule: take runs when the first argument
 // is not a subcommand name, so "shots example.com" and "shots -w 800 x.html"
 // both take a screenshot. Subcommand names always win, which is why a host that
-// collides with one needs "shots shot html" or "shots ./html".
+// collides with one needs "shots take html" or "shots ./html". No arguments at
+// all asks for help rather than for a screenshot of nothing.
 //
 // Flags that belong to the root rather than to a command are left where they
 // are, so "shots --help" still lists the commands.
 func resolve(args, commands []string) []string {
 	if len(args) == 0 {
-		return []string{"shot"}
+		return []string{"--help"}
 	}
 	if args[0] == "--help" || args[0] == "--version" {
 		return args
@@ -172,7 +175,7 @@ func resolve(args, commands []string) []string {
 	if slices.Contains(commands, args[0]) {
 		return args
 	}
-	return append([]string{"shot"}, args...)
+	return append([]string{"take"}, args...)
 }
 
 // report maps a command's error to an exit status.

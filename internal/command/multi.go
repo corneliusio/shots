@@ -24,6 +24,8 @@ type multiCmd struct {
 	NoClobber   bool     `short:"n" help:"Fail instead of overwriting an existing output file."`
 	FailOnError bool     `help:"Stop at the first shot that fails, instead of reporting it and carrying on."`
 	LeaveServer bool     `help:"Leave the servers the configuration starts running."`
+	Report      string   `placeholder:"FILE" help:"Write JSON Lines capture reports to this file, or - for standard output."`
+	Stable      bool     `help:"Reduce visual motion and wait for fonts, images, and two paint frames."`
 
 	scaleFlags
 	harFlags
@@ -46,6 +48,9 @@ func (c *multiCmd) Run(ctx context.Context, e *env) error {
 	if err != nil {
 		return err
 	}
+	if err := c.validateArtifacts(cfg, harPath); err != nil {
+		return err
+	}
 	state, err := loadState(c.Auth)
 	if err != nil {
 		return err
@@ -54,13 +59,20 @@ func (c *multiCmd) Run(ctx context.Context, e *env) error {
 	if harPath != "" {
 		b.har = har.NewRecorder(Version)
 	}
-	for _, output := range c.Output {
-		b.outputs = append(b.outputs, cfg.Resolve(output))
-	}
+	b.outputs = c.resolvedOutputs(cfg)
 	// Runs on every path out, including a cancelled context: servers are
 	// stopped and Chrome is closed whether the batch succeeded or not.
 	defer b.close()
-	return b.run(ctx)
+	runErr := b.run(ctx)
+	reportErr := writeShotReports(e, c.Report, b.reports)
+	if reportErr == nil {
+		return runErr
+	}
+	reportErr = fmt.Errorf("writing report: %w", reportErr)
+	if runErr == nil {
+		return reportErr
+	}
+	return errors.Join(runErr, reportErr)
 }
 
 func (c *multiCmd) validate() error {
@@ -68,6 +80,39 @@ func (c *multiCmd) validate() error {
 		return err
 	}
 	return c.scaleFlags.validate()
+}
+
+func (c *multiCmd) validateArtifacts(cfg *config.Multi, harPath string) error {
+	if c.Report == "" {
+		return nil
+	}
+	if c.Report == artifact.Stdout && harPath == artifact.Stdout {
+		return usagef("--report - cannot be combined with HAR output on standard output")
+	}
+	if sameArtifactPath(c.Report, harPath) {
+		return usagef("--report and HAR output must use different files")
+	}
+	outputs := c.resolvedOutputs(cfg)
+	for _, entry := range cfg.Entries {
+		if entry.URL == "" || (len(outputs) > 0 && !slices.Contains(outputs, entry.Output)) {
+			continue
+		}
+		if c.Report == artifact.Stdout && entry.Output == artifact.Stdout {
+			return usagef("--report - cannot be combined with an entry output of -")
+		}
+		if sameArtifactPath(c.Report, entry.Output) {
+			return usagef("--report and entry output must use different files")
+		}
+	}
+	return nil
+}
+
+func (c *multiCmd) resolvedOutputs(cfg *config.Multi) []string {
+	outputs := make([]string, 0, len(c.Output))
+	for _, output := range c.Output {
+		outputs = append(outputs, cfg.Resolve(output))
+	}
+	return outputs
 }
 
 // load reads the configuration, from standard input when it is "-". A malformed
@@ -119,6 +164,9 @@ type batch struct {
 	bctx    *browser.Context
 	servers []*process.Server
 	failed  int
+
+	diagnostics *shotDiagnostics
+	reports     []shotReport
 }
 
 // run executes the entries in source order. A failed step stops the batch,
@@ -157,22 +205,12 @@ func (b *batch) run(ctx context.Context) error {
 	return nil
 }
 
-// steps runs an entry's sh, python and server parts, in that order. rest is the
+// steps runs an entry's shell and server parts, in that order. rest is the
 // entry and the ones after it, which is where a server's readiness address
 // comes from.
 func (b *batch) steps(ctx context.Context, entry config.Entry, rest []config.Entry) error {
 	if !entry.Sh.Empty() {
 		if err := process.Run(ctx, b.command(entry.Sh)); err != nil {
-			return err
-		}
-	}
-	if entry.Python != "" {
-		python, err := process.Python()
-		if err != nil {
-			return err
-		}
-		cmd := b.command(config.Command{Args: []string{python, "-c", entry.Python}})
-		if err := process.Run(ctx, cmd); err != nil {
 			return err
 		}
 	}
@@ -234,6 +272,7 @@ func (b *batch) start(ctx context.Context) error {
 	}
 	b.browser = connected
 	b.bctx, err = connected.NewContext(ctx, b.state)
+	b.diagnostics = newShotDiagnostics(b.cmd.Report != "")
 	return err
 }
 
@@ -241,7 +280,34 @@ func (b *batch) start(ctx context.Context) error {
 // recorded, an entry with no output still loads its page — the traffic is the
 // point — but writes no image, which is what upstream's injected skip_shot key
 // does.
-func (b *batch) shot(ctx context.Context, entry config.Entry) error {
+func (b *batch) shot(ctx context.Context, entry config.Entry) (captureErr error) {
+	started := time.Now()
+	if b.diagnostics != nil {
+		b.diagnostics.reset()
+	}
+	target := entry.URL
+	output := ""
+	status := 0
+	var page *browser.Page
+	defer func() {
+		finalURL := ""
+		if page != nil {
+			finalURL, _ = page.URL(ctx)
+			if b.har != nil {
+				page.FlushHAR()
+			}
+			page.Close()
+		}
+		if b.cmd.Report == "" {
+			return
+		}
+		reportOutput := output
+		if errors.Is(captureErr, errSkipped) {
+			reportOutput = ""
+		}
+		b.reports = append(b.reports, b.diagnostics.snapshot(target, finalURL, reportOutput, status, started, captureErr))
+	}()
+
 	target, err := NormalizeURL(entry.URL)
 	if err != nil {
 		return err
@@ -250,30 +316,25 @@ func (b *batch) shot(ctx context.Context, entry config.Entry) error {
 	if err != nil {
 		return err
 	}
-	jpeg := entry.Quality > 0 || isJPEGPath(entry.Output)
-	output := ""
-	if entry.Output != "" || b.har == nil {
-		ext := "png"
-		if jpeg {
-			ext = "jpg"
-		}
-		if output, err = artifact.Path(entry.Output, target, ext); err != nil {
-			return err
-		}
-	}
-
-	page, err := b.page(ctx, entry)
+	encoding, err := screenshotEncodingFor(entry.Output, entry.Format, entry.Quality, entry.OmitBackground)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if b.har != nil {
-			page.FlushHAR()
+	if entry.Output != "" || b.har == nil {
+		if output, err = artifact.Path(entry.Output, target, encoding.extension); err != nil {
+			return err
 		}
-		page.Close()
-	}()
+		if sameArtifactPath(b.cmd.Report, output) {
+			return usagef("--report and entry output must use different files")
+		}
+	}
 
-	status, err := page.Navigate(ctx, target)
+	page, err = b.page(ctx, entry)
+	if err != nil {
+		return err
+	}
+
+	status, err = page.Navigate(ctx, target)
 	if err != nil {
 		return err
 	}
@@ -283,13 +344,18 @@ func (b *batch) shot(ctx context.Context, entry config.Entry) error {
 	if err := prepare(ctx, page, time.Duration(entry.Wait)*time.Millisecond, script, entry.WaitFor); err != nil {
 		return err
 	}
+	if b.cmd.Stable {
+		if err := page.Stabilize(ctx); err != nil {
+			return err
+		}
+	}
 	if output == "" {
 		return nil
 	}
 
 	shot := browser.ShotOptions{
-		JPEG:           jpeg,
-		Quality:        entry.Quality,
+		JPEG:           encoding.jpeg,
+		Quality:        encoding.quality,
 		OmitBackground: entry.OmitBackground,
 		FullPage:       entry.Height == 0,
 	}
@@ -324,12 +390,20 @@ func (b *batch) page(ctx context.Context, entry config.Entry) (*browser.Page, er
 	if height == 0 {
 		height = defaultHeight
 	}
-	return b.cmd.newPage(ctx, b.env, b.bctx, browser.PageOptions{
+	opts := browser.PageOptions{
 		Width:       width,
 		Height:      height,
 		ScaleFactor: b.cmd.factor(),
 		HAR:         b.har,
-	})
+	}
+	if b.diagnostics != nil {
+		b.diagnostics.attach(&opts)
+	}
+	flags := b.cmd.sessionFlags
+	if b.cmd.Stable {
+		flags.ReducedMotion = true
+	}
+	return flags.newPage(ctx, b.env, b.bctx, opts)
 }
 
 // script resolves an entry's JavaScript, which the configuration gives either

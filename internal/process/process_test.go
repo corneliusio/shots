@@ -233,34 +233,3 @@ func TestStop(t *testing.T) {
 		t.Error("the server is still listening after Stop")
 	}
 }
-
-func TestPython(t *testing.T) {
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Run("the environment wins", func(t *testing.T) {
-		t.Setenv("SHOTS_PYTHON", exe)
-		got, err := Python()
-		if err != nil || got != exe {
-			t.Fatalf("Python() = %q, %v, want %q", got, err, exe)
-		}
-	})
-	t.Run("an interpreter that is not there falls through", func(t *testing.T) {
-		t.Setenv("SHOTS_PYTHON", "shots-no-such-python")
-		// Whether python3 or python is installed is not this test's business:
-		// either an interpreter is found, or the error names every candidate.
-		got, err := Python()
-		if err == nil {
-			if strings.Contains(got, "shots-no-such-python") {
-				t.Fatalf("Python() = %q, want a real interpreter", got)
-			}
-			return
-		}
-		for _, want := range []string{"shots-no-such-python", "python3", "python"} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("error = %v, want it to name %q", err, want)
-			}
-		}
-	})
-}

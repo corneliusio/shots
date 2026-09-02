@@ -9,10 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 )
@@ -72,7 +74,7 @@ func Connect(ctx context.Context, opts Options) (*Browser, error) {
 
 	var allocCtx context.Context
 	if b.launched {
-		path, err := Discover(opts.Path)
+		path, err := discover(opts.Path, opts.Headed || opts.DevTools)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +83,7 @@ func Connect(ctx context.Context, opts Options) (*Browser, error) {
 	} else {
 		allocCtx, b.alloc = chromedp.NewRemoteAllocator(ctx, opts.CDPURL)
 	}
-	b.ctx, b.cancel = chromedp.NewContext(allocCtx)
+	b.ctx, b.cancel = chromedp.NewContext(allocCtx, chromedp.WithErrorf(browserErrorf))
 
 	if err := start(ctx, b.ctx, b.timeout); err != nil {
 		b.Close()
@@ -91,6 +93,18 @@ func Connect(ctx context.Context, opts Options) (*Browser, error) {
 		return nil, fmt.Errorf("connecting to %s: %w", opts.CDPURL, err)
 	}
 	return b, nil
+}
+
+// browserErrorf keeps chromedp's useful internal errors while dropping one
+// harmless message caused by Chrome emitting a DOM event chromedp does not yet
+// use in its node cache.
+func browserErrorf(format string, args ...any) {
+	if format == "unhandled node event %T" && len(args) == 1 {
+		if _, ok := args[0].(*dom.EventAdoptedStyleSheetsModified); ok {
+			return
+		}
+	}
+	log.Printf(format, args...)
 }
 
 func execOptions(exe string, opts Options) []chromedp.ExecAllocatorOption {
@@ -140,6 +154,13 @@ func (b *Browser) Close() {
 	if b.alloc != nil {
 		b.alloc()
 	}
+}
+
+// Lost is closed when the connection to the browser is gone, which for a
+// browser shots launched means Chrome exited. Callers that wait for input
+// select on it so they do not wait for a browser that can no longer answer.
+func (b *Browser) Lost() <-chan struct{} {
+	return chromedp.FromContext(b.ctx).Browser.LostConnection
 }
 
 // Version reports the browser's product string, such as "Chrome/152.0.7977.65".

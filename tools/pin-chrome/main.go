@@ -1,5 +1,5 @@
 // Command pin-chrome rewrites internal/browser/chrome.json for a Chrome for
-// Testing version.
+// Testing Headless Shell version.
 //
 // Chrome for Testing publishes download URLs but no checksums, so shots
 // computes them itself, once, and commits them (PLAN.md Section 5). This is a
@@ -30,16 +30,16 @@ import (
 
 // binaries is the browser executable inside each platform's archive.
 var binaries = map[string]string{
-	"linux64":   "chrome-linux64/chrome",
-	"mac-arm64": "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-	"mac-x64":   "chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-	"win32":     "chrome-win32/chrome.exe",
-	"win64":     "chrome-win64/chrome.exe",
+	"linux64":   "chrome-headless-shell-linux64/chrome-headless-shell",
+	"mac-arm64": "chrome-headless-shell-mac-arm64/chrome-headless-shell",
+	"mac-x64":   "chrome-headless-shell-mac-x64/chrome-headless-shell",
+	"win32":     "chrome-headless-shell-win32/chrome-headless-shell.exe",
+	"win64":     "chrome-headless-shell-win64/chrome-headless-shell.exe",
 }
 
 const (
 	stableURL   = "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json"
-	downloadURL = "https://storage.googleapis.com/chrome-for-testing-public/%s/%s/chrome-%s.zip"
+	downloadURL = "https://storage.googleapis.com/chrome-for-testing-public/%s/%s/chrome-headless-shell-%s.zip"
 	manifest    = "internal/browser/chrome.json"
 )
 

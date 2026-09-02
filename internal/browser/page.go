@@ -13,9 +13,11 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/fetch"
+	cdplog "github.com/chromedp/cdproto/log"
 	"github.com/chromedp/cdproto/network"
 	cdppage "github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/runtime"
+	"github.com/chromedp/cdproto/security"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 	"github.com/mostlyserious/shots/internal/har"
@@ -34,7 +36,8 @@ type Request struct {
 	Status int64  `json:"status"`
 	// Size is the number of bytes Chrome received on the wire, or null when
 	// the request failed.
-	Size *int64 `json:"size"`
+	Size  *int64 `json:"size"`
+	Error string `json:"error,omitempty"`
 }
 
 // PageOptions configures a page before anything is loaded into it.
@@ -47,22 +50,28 @@ type PageOptions struct {
 	UserAgent string
 	// ReducedMotion emulates prefers-reduced-motion: reduce.
 	ReducedMotion bool
+	// ColorScheme emulates prefers-color-scheme. Empty leaves Chrome's own.
+	ColorScheme string
 	// Media emulates a CSS media type, such as "screen" or "print". Empty
 	// leaves the page's own.
 	Media string
 	// BypassCSP disables the page's Content-Security-Policy.
 	BypassCSP bool
+	// Insecure accepts TLS certificates Chrome would reject, such as a local
+	// development server's self-signed one.
+	Insecure bool
 	// InitScript runs in every document the page loads, before the page's own
 	// scripts. It is how the recording cursor survives a navigation.
 	InitScript string
 	// Username and Password answer HTTP basic authentication challenges. They
 	// are sent only in response to a challenge, and never logged.
 	Username, Password string
-	// OnConsole and OnRequest, when set, receive console messages and
-	// completed requests. They are called from a background goroutine and must
-	// not block.
-	OnConsole func(Message)
-	OnRequest func(Request)
+	// OnConsole, OnException and OnRequest, when set, receive console
+	// messages, uncaught exceptions and completed requests. They are called
+	// from a background goroutine and must not block.
+	OnConsole   func(Message)
+	OnException func(string)
+	OnRequest   func(Request)
 	// HAR, when set, records every request the page makes. The caller reads
 	// the log after [Page.FlushHAR].
 	HAR *har.Recorder
@@ -198,6 +207,9 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 		if err := runtime.Enable().Do(c); err != nil {
 			return err
 		}
+		if err := cdplog.Enable().Do(c); err != nil {
+			return err
+		}
 		if opts.Width > 0 || opts.Height > 0 || opts.ScaleFactor > 0 {
 			scale := opts.ScaleFactor
 			if scale <= 0 {
@@ -214,17 +226,27 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 			}
 		}
 		// One command carries both, because a second call replaces the first.
-		if opts.ReducedMotion || opts.Media != "" {
+		if opts.ReducedMotion || opts.ColorScheme != "" || opts.Media != "" {
 			media := emulation.SetEmulatedMedia().WithMedia(opts.Media)
+			features := make([]*emulation.MediaFeature, 0, 2)
 			if opts.ReducedMotion {
-				media = media.WithFeatures([]*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: "reduce"}})
+				features = append(features, &emulation.MediaFeature{Name: "prefers-reduced-motion", Value: "reduce"})
 			}
+			if opts.ColorScheme != "" {
+				features = append(features, &emulation.MediaFeature{Name: "prefers-color-scheme", Value: opts.ColorScheme})
+			}
+			media = media.WithFeatures(features)
 			if err := media.Do(c); err != nil {
 				return err
 			}
 		}
 		if opts.BypassCSP {
 			if err := cdppage.SetBypassCSP(true).Do(c); err != nil {
+				return err
+			}
+		}
+		if opts.Insecure {
+			if err := security.SetIgnoreCertificateErrors(true).Do(c); err != nil {
 				return err
 			}
 		}
@@ -286,6 +308,7 @@ func (p *Page) listen(opts PageOptions) {
 			}
 		case *network.EventLoadingFailed:
 			if r := p.finish(ev.RequestID); r != nil {
+				r.Error = ev.ErrorText
 				opts.OnRequest(*r)
 			}
 			if opts.HAR != nil {
@@ -298,6 +321,14 @@ func (p *Page) listen(opts PageOptions) {
 		case *runtime.EventConsoleAPICalled:
 			if opts.OnConsole != nil {
 				opts.OnConsole(Message{Type: ev.Type.String(), Text: consoleText(ev.Args)})
+			}
+		case *cdplog.EventEntryAdded:
+			if opts.OnConsole != nil && ev.Entry != nil {
+				opts.OnConsole(Message{Type: ev.Entry.Level.String(), Text: ev.Entry.Text})
+			}
+		case *runtime.EventExceptionThrown:
+			if opts.OnException != nil {
+				opts.OnException(exceptionText(ev.ExceptionDetails))
 			}
 		case *fetch.EventAuthRequired:
 			go p.answerAuth(ev, opts)
@@ -556,12 +587,16 @@ func (p *Page) HTML(ctx context.Context, selector string) (string, error) {
 }
 
 func jsError(exc *runtime.ExceptionDetails) error {
+	return fmt.Errorf("%s", exceptionText(exc))
+}
+
+func exceptionText(exc *runtime.ExceptionDetails) string {
 	if exc.Exception != nil && exc.Exception.Description != "" {
 		// Chrome's description carries a stack trace; the first line is the
 		// message users need.
-		return fmt.Errorf("%s", strings.SplitN(exc.Exception.Description, "\n", 2)[0])
+		return strings.SplitN(exc.Exception.Description, "\n", 2)[0]
 	}
-	return fmt.Errorf("%s", exc.Text)
+	return exc.Text
 }
 
 // Rect is a rectangle in CSS pixels, relative to the top of the document.
@@ -591,6 +626,12 @@ func (s Selectors) Empty() bool {
 //go:embed region.js
 var regionJS string
 
+//go:embed prepare-region.js
+var prepareRegionJS string
+
+//go:embed restore-region.js
+var restoreRegionJS string
+
 // Region resolves selectors to the padded rectangle enclosing every element
 // they match.
 func (p *Page) Region(ctx context.Context, sel Selectors) (Rect, error) {
@@ -615,7 +656,7 @@ func (p *Page) Region(ctx context.Context, sel Selectors) (Rect, error) {
 type ShotOptions struct {
 	// JPEG selects JPEG output; PNG is the default.
 	JPEG bool
-	// Quality is the JPEG quality, 1 to 100. Ignored for PNG.
+	// Quality is the JPEG quality, 1 to 100. Zero leaves Chrome's default.
 	Quality int
 	// Clip crops the screenshot to a rectangle in document coordinates.
 	Clip *Rect
@@ -629,7 +670,16 @@ type ShotOptions struct {
 // Screenshot captures the page.
 func (p *Page) Screenshot(ctx context.Context, opts ShotOptions) ([]byte, error) {
 	var buf []byte
-	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) error {
+	err := p.run(ctx, chromedp.ActionFunc(func(c context.Context) (err error) {
+		cleanupRegion := opts.Clip != nil
+		defer func() {
+			if !cleanupRegion {
+				return
+			}
+			if cleanupErr := evalIn(c, "("+restoreRegionJS+")()", nil); err == nil && cleanupErr != nil {
+				err = fmt.Errorf("restoring page after screenshot: %w", cleanupErr)
+			}
+		}()
 		if opts.OmitBackground {
 			transparent := emulation.SetDefaultBackgroundColorOverride().WithColor(&cdp.RGBA{})
 			if err := transparent.Do(c); err != nil {
@@ -637,11 +687,32 @@ func (p *Page) Screenshot(ctx context.Context, opts ShotOptions) ([]byte, error)
 			}
 			defer emulation.SetDefaultBackgroundColorOverride().Do(c)
 		}
-		shot := cdppage.CaptureScreenshot().WithFormat(cdppage.CaptureScreenshotFormatPng)
+		shot := cdppage.CaptureScreenshot().
+			WithFormat(cdppage.CaptureScreenshotFormatPng).
+			WithOptimizeForSpeed(true)
 		if opts.JPEG {
-			shot = shot.WithFormat(cdppage.CaptureScreenshotFormatJpeg).WithQuality(int64(opts.Quality))
+			shot = shot.WithFormat(cdppage.CaptureScreenshotFormatJpeg)
+			if opts.Quality > 0 {
+				shot = shot.WithQuality(int64(opts.Quality))
+			}
 		}
 		clip := opts.Clip
+		if clip != nil {
+			if clip.Width <= 0 || clip.Height <= 0 {
+				return fmt.Errorf("region is empty: %gx%g", clip.Width, clip.Height)
+			}
+			args, err := json.Marshal(clip)
+			if err != nil {
+				return err
+			}
+			// Centering avoids Chrome compositing an offscreen document clip with
+			// fixed content from the viewport. External fixed and sticky layers
+			// that really overlap the centered region are hidden only for capture.
+			expr := fmt.Sprintf("(%s)(%s)", prepareRegionJS, args)
+			if err := evalIn(c, expr, nil); err != nil {
+				return fmt.Errorf("bringing screenshot region into view: %w", err)
+			}
+		}
 		if clip == nil && opts.FullPage {
 			_, _, _, _, _, content, err := cdppage.GetLayoutMetrics().Do(c)
 			if err != nil {
@@ -656,7 +727,6 @@ func (p *Page) Screenshot(ctx context.Context, opts ShotOptions) ([]byte, error)
 			viewport := &cdppage.Viewport{X: clip.X, Y: clip.Y, Width: clip.Width, Height: clip.Height, Scale: 1}
 			shot = shot.WithClip(viewport).WithCaptureBeyondViewport(true)
 		}
-		var err error
 		buf, err = shot.Do(c)
 		return err
 	}))

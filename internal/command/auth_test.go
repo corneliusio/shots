@@ -166,7 +166,7 @@ func TestAuthStateRestoresEveryOrigin(t *testing.T) {
 }
 
 func TestAuthMissingStateFile(t *testing.T) {
-	got := run(t, "shot", "example.com", "-a", filepath.Join(t.TempDir(), "absent.json"))
+	got := run(t, "take", "example.com", "-a", filepath.Join(t.TempDir(), "absent.json"))
 	if got.code != exitFailure || !strings.Contains(got.stderr, "absent.json") {
 		t.Errorf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}

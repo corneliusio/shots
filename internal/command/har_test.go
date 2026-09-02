@@ -268,7 +268,7 @@ func TestHARFlagsOnShot(t *testing.T) {
 	srv := site(t)
 	dir := t.TempDir()
 	t.Chdir(dir)
-	got := run(t, "shot", srv.URL+"/network.html", "-o", "shot.png", "--har")
+	got := run(t, "take", srv.URL+"/network.html", "-o", "shot.png", "--har")
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
@@ -288,7 +288,7 @@ func TestHARFlagsOnShot(t *testing.T) {
 func TestHARFileZipsByExtension(t *testing.T) {
 	srv := site(t)
 	output := filepath.Join(t.TempDir(), "trace.har.zip")
-	got := run(t, "shot", srv.URL+"/", "-o", filepath.Join(t.TempDir(), "shot.png"), "--har-file", output)
+	got := run(t, "take", srv.URL+"/", "-o", filepath.Join(t.TempDir(), "shot.png"), "--har-file", output)
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}

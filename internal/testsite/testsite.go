@@ -38,6 +38,7 @@ func New() *httptest.Server {
 //	/redirect?to=&status=  a redirect, by default 302 to /redirected.html
 //	/status/{code}         that HTTP status
 //	/slow?ms=              a response delayed by ms milliseconds
+//	/slow-image?ms=        an SVG image delayed by ms milliseconds
 //	/basic-auth            401 until BasicAuthUser and BasicAuthPassword are sent
 //	/set-cookie?name=&value= sets a cookie, then redirects to /storage.html
 //	/reset                 closes the connection without a response
@@ -51,6 +52,7 @@ func Handler() http.Handler {
 	mux.HandleFunc("GET /redirect", redirect)
 	mux.HandleFunc("GET /status/{code}", status)
 	mux.HandleFunc("GET /slow", slow)
+	mux.HandleFunc("GET /slow-image", slowImage)
 	mux.HandleFunc("GET /basic-auth", basicAuth)
 	mux.HandleFunc("GET /set-cookie", setCookie)
 	mux.HandleFunc("GET /reset", reset)
@@ -97,14 +99,9 @@ func status(w http.ResponseWriter, r *http.Request) {
 }
 
 func slow(w http.ResponseWriter, r *http.Request) {
-	delay := 200 * time.Millisecond
-	if raw := r.URL.Query().Get("ms"); raw != "" {
-		ms, err := strconv.Atoi(raw)
-		if err != nil || ms < 0 {
-			http.Error(w, "ms must be a non-negative number", http.StatusBadRequest)
-			return
-		}
-		delay = min(time.Duration(ms)*time.Millisecond, maxDelay)
+	delay, ok := requestedDelay(w, r)
+	if !ok {
+		return
 	}
 	select {
 	case <-time.After(delay):
@@ -113,6 +110,33 @@ func slow(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, "<!doctype html>\n<title>Slow</title>\n<h1 id=slow>%d</h1>\n", delay.Milliseconds())
+}
+
+func slowImage(w http.ResponseWriter, r *http.Request) {
+	delay, ok := requestedDelay(w, r)
+	if !ok {
+		return
+	}
+	select {
+	case <-time.After(delay):
+	case <-r.Context().Done():
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	fmt.Fprint(w, `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>`)
+}
+
+func requestedDelay(w http.ResponseWriter, r *http.Request) (time.Duration, bool) {
+	delay := 200 * time.Millisecond
+	if raw := r.URL.Query().Get("ms"); raw != "" {
+		ms, err := strconv.Atoi(raw)
+		if err != nil || ms < 0 {
+			http.Error(w, "ms must be a non-negative number", http.StatusBadRequest)
+			return 0, false
+		}
+		delay = min(time.Duration(ms)*time.Millisecond, maxDelay)
+	}
+	return delay, true
 }
 
 func basicAuth(w http.ResponseWriter, r *http.Request) {
