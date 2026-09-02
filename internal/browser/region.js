@@ -1,11 +1,8 @@
 // Returns the padded rectangle enclosing every element the selectors match, in
 // document coordinates, or {error} naming the selector that matched nothing.
 //
-// This reproduces shot-scraper's _selector_javascript without its wrapper
-// element: upstream builds an absolutely positioned div over the combined
-// bounds and screenshots that, because Playwright can only capture a locator.
-// CDP takes a clip rectangle directly, so the div, its random id and the 300ms
-// settle it needed are not required.
+// CDP accepts the returned rectangle directly, so the page needs no temporary
+// wrapper element.
 (spec) => {
   const selectedElementsKey = Symbol.for('github.com/corneliusio/shots.selected-elements');
   delete globalThis[selectedElementsKey];

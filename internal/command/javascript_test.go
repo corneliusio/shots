@@ -3,6 +3,7 @@ package command
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -144,7 +145,7 @@ func TestJavaScriptOutput(t *testing.T) {
 		if data, err := os.ReadFile(out); err != nil || string(data) != "\"Promise\"\n" {
 			t.Fatalf("file = %q (%v)", data, err)
 		}
-		if len(got.stdout) > 0 || !strings.Contains(got.stderr, out) {
+		if len(got.stdout) > 0 || !strings.Contains(got.stderr, strconv.Quote(out)) {
 			t.Errorf("stdout = %q, stderr = %q", got.stdout, got.stderr)
 		}
 	})
@@ -192,12 +193,13 @@ func TestGitHubScriptURL(t *testing.T) {
 		ref  string
 		want string
 	}{
-		{"gh:simonw/readme-title.js", "https://raw.githubusercontent.com/simonw/shot-scraper-scripts/main/readme-title.js"},
-		{"gh:simonw/readme-title", "https://raw.githubusercontent.com/simonw/shot-scraper-scripts/main/readme-title.js"},
-		{"gh:simonw/repo/scripts/title.js", "https://raw.githubusercontent.com/simonw/repo/main/scripts/title.js"},
-		{"gh:simonw", ""},
+		{"gh:octocat/scripts/readme-title.js", "https://raw.githubusercontent.com/octocat/scripts/main/readme-title.js"},
+		{"gh:octocat/scripts/readme-title", "https://raw.githubusercontent.com/octocat/scripts/main/readme-title.js"},
+		{"gh:octocat/repo/scripts/title.js", "https://raw.githubusercontent.com/octocat/repo/main/scripts/title.js"},
+		{"gh:octocat/readme-title.js", ""},
+		{"gh:octocat", ""},
 		{"gh:", ""},
-		{"gh:simonw/", ""},
+		{"gh:octocat/", ""},
 		{"gh:/title.js", ""},
 	}
 	for _, tt := range tests {

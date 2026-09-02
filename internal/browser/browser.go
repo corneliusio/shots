@@ -19,8 +19,7 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// DefaultTimeout bounds navigation and script execution, matching upstream's
-// inherited Playwright default.
+// DefaultTimeout bounds navigation and script execution.
 const DefaultTimeout = 30 * time.Second
 
 // Options configures [Connect].

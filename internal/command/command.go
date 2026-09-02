@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"sync"
 
 	"github.com/alecthomas/kong"
@@ -15,7 +14,7 @@ import (
 // Version is the reported version, overridden at link time.
 var Version = "dev"
 
-// Exit codes, per PLAN.md Section 10.
+// Exit codes distinguish success, runtime failure, and invalid input.
 const (
 	exitOK      = 0
 	exitFailure = 1
@@ -36,14 +35,11 @@ func usagef(format string, args ...any) error {
 // errSkipped reports that --skip suppressed the work. It is a success.
 var errSkipped = errors.New("skipped")
 
-// description is the help text, and the only place PLAN.md Section 7's
-// resolution rule is visible to users.
+// description is the top-level help text.
 const description = `Take automated screenshots with Chrome.
 
-A URL as the first argument is shorthand for the take command, so "shots
-example.com" takes a screenshot, and shots alone prints this help. A first
-argument that names a command always selects that command: capture a host that
-collides with one as "shots take html" or "shots ./html".`
+Every invocation names a command. Use "shots take example.com" to take a
+screenshot. Shots alone prints this help.`
 
 // cli is the whole command surface.
 type cli struct {
@@ -64,8 +60,8 @@ type cli struct {
 	Help    helpFlag         `help:"Show context-sensitive help."`
 }
 
-// helpFlag replaces kong's built-in help flag, which claims -h. Upstream uses
-// -h for --height, so shots offers only the long spelling.
+// helpFlag replaces kong's built-in help flag because shots reserves -h for
+// --height.
 type helpFlag bool
 
 func (helpFlag) BeforeReset(kctx *kong.Context) error {
@@ -137,7 +133,10 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		fmt.Fprintln(e.stderr, "shots:", err)
 		return exitFailure
 	}
-	kctx, err := parser.Parse(resolve(args, commandNames(parser)))
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+	kctx, err := parser.Parse(args)
 	if exited >= 0 {
 		return exited
 	}
@@ -146,36 +145,6 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		return exitUsage
 	}
 	return report(e.stderr, kctx.Run())
-}
-
-// commandNames lists the top-level subcommands.
-func commandNames(parser *kong.Kong) []string {
-	names := make([]string, 0, len(parser.Model.Children))
-	for _, child := range parser.Model.Children {
-		names = append(names, child.Name)
-	}
-	return names
-}
-
-// resolve applies the default-command rule: take runs when the first argument
-// is not a subcommand name, so "shots example.com" and "shots -w 800 x.html"
-// both take a screenshot. Subcommand names always win, which is why a host that
-// collides with one needs "shots take html" or "shots ./html". No arguments at
-// all asks for help rather than for a screenshot of nothing.
-//
-// Flags that belong to the root rather than to a command are left where they
-// are, so "shots --help" still lists the commands.
-func resolve(args, commands []string) []string {
-	if len(args) == 0 {
-		return []string{"--help"}
-	}
-	if args[0] == "--help" || args[0] == "--version" {
-		return args
-	}
-	if slices.Contains(commands, args[0]) {
-		return args
-	}
-	return append([]string{"take"}, args...)
 }
 
 // report maps a command's error to an exit status.

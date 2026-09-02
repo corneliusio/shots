@@ -160,9 +160,8 @@ func (f sessionFlags) check(e *env, status int, target string) error {
 	return nil
 }
 
-// open runs steps 3 to 9 of the lifecycle in PLAN.md Section 6: connect to
-// Chrome, open a page in a fresh browser context, navigate, apply --skip and
-// --fail, then wait and run script.
+// open connects to Chrome, opens a page in a fresh browser context, navigates,
+// applies --skip and --fail, then waits and runs the script.
 //
 // On failure — including the [errSkipped] that --skip reports — everything
 // opened is closed again; on success the caller must call the returned
@@ -273,9 +272,6 @@ func (f pageFlags) script(ctx context.Context, e *env) (string, error) {
 	return readScript(ctx, e.stdin, f.JSFile)
 }
 
-// scriptsRepo is the repository gh:user/script.js is shorthand for.
-const scriptsRepo = "shot-scraper-scripts"
-
 // readScript reads JavaScript from a file, from standard input when ref is "-",
 // or from GitHub for a gh: reference.
 func readScript(ctx context.Context, stdin io.Reader, ref string) (string, error) {
@@ -295,21 +291,17 @@ func readScript(ctx context.Context, stdin io.Reader, ref string) (string, error
 	}
 }
 
-// githubURL expands the gh: convention: gh:user/repo/path/to/script.js, or
-// gh:user/script.js as shorthand for gh:user/shot-scraper-scripts/script.js.
-// A missing .js suffix is added.
+// githubURL expands gh:user/repo/path/to/script.js. A missing .js suffix is
+// added.
 func githubURL(ref string) (string, error) {
 	parts := strings.Split(strings.TrimPrefix(ref, "gh:"), "/")
-	if len(parts) < 2 {
-		return "", usagef("%s: expected gh:user/script.js or gh:user/repo/path/script.js", ref)
+	if len(parts) < 3 {
+		return "", usagef("%s: expected gh:user/repo/path/script.js", ref)
 	}
-	user, repo, path := parts[0], scriptsRepo, parts[1:]
-	if len(path) > 1 {
-		repo, path = path[0], path[1:]
-	}
+	user, repo, path := parts[0], parts[1], parts[2:]
 	name := strings.Join(path, "/")
 	if user == "" || repo == "" || strings.Contains(name, "//") || strings.HasPrefix(name, "/") || name == "" {
-		return "", usagef("%s: expected gh:user/script.js or gh:user/repo/path/script.js", ref)
+		return "", usagef("%s: expected gh:user/repo/path/script.js", ref)
 	}
 	if !strings.HasSuffix(name, ".js") {
 		name += ".js"
@@ -317,8 +309,8 @@ func githubURL(ref string) (string, error) {
 	return "https://raw.githubusercontent.com/" + user + "/" + repo + "/main/" + name, nil
 }
 
-// download fetches a remote script. Remote scripts are user-trusted code, as
-// PLAN.md Section 11 says: nothing here sandboxes them.
+// download fetches a remote script. Remote scripts are user-trusted code;
+// nothing here sandboxes them.
 func download(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

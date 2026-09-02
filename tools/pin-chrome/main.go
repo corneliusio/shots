@@ -1,9 +1,8 @@
 // Command pin-chrome rewrites internal/browser/chrome.json for a Chrome for
 // Testing Headless Shell version.
 //
-// Chrome for Testing publishes download URLs but no checksums, so shots
-// computes them itself, once, and commits them (PLAN.md Section 5). This is a
-// maintainer chore, not part of the build:
+// Chrome for Testing publishes download URLs but no checksums, so this command
+// computes them for the committed manifest. This is a maintainer chore:
 //
 //	go run ./tools/pin-chrome            # pin the current Stable release
 //	go run ./tools/pin-chrome 152.0.7977.64

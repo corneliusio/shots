@@ -19,9 +19,8 @@ import (
 // State is a browser context's authentication state: its cookies, and the
 // local storage of the origins that have some.
 //
-// The JSON shape is Playwright's storage_state, so a file written by
-// shot-scraper auth restores here unchanged, and a file shots wrote restores
-// there. Its values are credentials: nothing in shots prints them.
+// The JSON shape is Playwright's storage_state. Its values are credentials:
+// nothing in shots prints them.
 type State struct {
 	Cookies []Cookie `json:"cookies"`
 	Origins []Origin `json:"origins"`

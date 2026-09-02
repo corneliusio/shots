@@ -107,8 +107,7 @@ func TestParseSteps(t *testing.T) {
 	}
 }
 
-// Upstream's documented pattern: one entry does some work and then captures the
-// page it produced.
+// One entry can do some work and then capture the page it produced.
 func TestParseStepAndShotInOneEntry(t *testing.T) {
 	m := parse(t, `
 - server: python -m http.server 8000
@@ -436,8 +435,8 @@ func TestValidValues(t *testing.T) {
 	}
 }
 
-// Command-line flags upstream, so they are unknown keys here rather than
-// silently ignored settings. See COMPAT.md.
+// Command-line flags are unknown entry keys rather than silently ignored
+// settings.
 func TestFlagsAreNotEntryKeys(t *testing.T) {
 	for _, key := range []string{"retina", "scale_factor", "timeout", "skip", "fail"} {
 		err := parseErr(t, "- url: https://example.com/\n  "+key+": 1\n")
@@ -481,8 +480,8 @@ func TestBaseDirResolvesRelativePaths(t *testing.T) {
 }
 
 func TestBaseDirLeavesAbsoluteStdoutAndGitHub(t *testing.T) {
-	abs := filepath.Join(string(filepath.Separator), "var", "a.png")
-	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: "+filepath.ToSlash(abs)+"\n- url: https://example.com/\n  output: \"-\"\n  js_file: gh:simonw/shot-scraper/clean.js\n"), "/tmp/project")
+	abs := filepath.Join(t.TempDir(), "a.png")
+	m, err := config.ParseMulti([]byte("- url: https://example.com/\n  output: "+filepath.ToSlash(abs)+"\n- url: https://example.com/\n  output: \"-\"\n  js_file: gh:octocat/scripts/clean.js\n"), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +491,7 @@ func TestBaseDirLeavesAbsoluteStdoutAndGitHub(t *testing.T) {
 	if got := m.Entries[1].Output; got != "-" {
 		t.Errorf("output = %q, want -", got)
 	}
-	if got, want := m.Entries[1].JSFile, "gh:simonw/shot-scraper/clean.js"; got != want {
+	if got, want := m.Entries[1].JSFile, "gh:octocat/scripts/clean.js"; got != want {
 		t.Errorf("js_file = %q, want %q", got, want)
 	}
 }

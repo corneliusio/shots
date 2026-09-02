@@ -108,7 +108,7 @@ func TestPDFOutput(t *testing.T) {
 			t.Fatal(err)
 		}
 		paperOf(t, data)
-		if len(got.stdout) > 0 || !strings.Contains(got.stderr, out) {
+		if len(got.stdout) > 0 || !strings.Contains(got.stderr, strconv.Quote(out)) {
 			t.Errorf("stdout = %q, stderr = %q", got.stdout, got.stderr)
 		}
 	})

@@ -68,13 +68,22 @@ func child(args []string) int {
 		// A server left running by --leave-server is nobody's child, so it
 		// bounds its own life rather than outliving the test run.
 		time.AfterFunc(time.Minute, func() { os.Exit(0) })
-		http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err = http.Serve(l, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/__shots_test_stop__" {
+				w.WriteHeader(http.StatusNoContent)
+				go l.Close()
+				return
+			}
 			// Logging every request is what a real server does, and what makes
 			// a server writing to a descriptor shots owned die once shots has
 			// exited.
 			fmt.Fprintln(os.Stderr, "serving", r.URL.Path)
 			fmt.Fprint(w, `<!doctype html><style>html,body{margin:0}</style><div id=served>served</div>`)
 		}))
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
 	}
 	return 0
 }
@@ -156,8 +165,8 @@ func binary(t *testing.T) string {
 	return path
 }
 
-// TestCLIStreams runs the real binary to check what PLAN.md Section 10 reserves
-// each stream for: a step's own output must not reach the artifact stream.
+// TestCLIStreams runs the real binary to check that a step's own output does
+// not reach the artifact stream.
 func TestCLIStreams(t *testing.T) {
 	dir := t.TempDir()
 	cfg := writeConfig(t, dir, "- sh: "+childArgs(t, "print", "step output"))
@@ -175,8 +184,8 @@ func TestCLIStreams(t *testing.T) {
 	}
 }
 
-// TestCLIOutputFiles checks PLAN.md Section 10's file rules where they are
-// hardest to fake: a whole process writing to a real directory.
+// TestCLIOutputFiles checks file behavior through a whole process writing to a
+// real directory.
 func TestCLIOutputFiles(t *testing.T) {
 	srv := site(t)
 	dir := t.TempDir()
@@ -224,8 +233,7 @@ func TestCLIOutputFiles(t *testing.T) {
 	}
 }
 
-// TestCLIExitCodes checks the mapping in PLAN.md Section 10 through the process
-// status, not through Main's return value.
+// TestCLIExitCodes checks exit statuses through the process boundary.
 func TestCLIExitCodes(t *testing.T) {
 	dir := t.TempDir()
 	tests := []struct {

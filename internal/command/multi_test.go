@@ -2,12 +2,14 @@ package command
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/corneliusio/shots/internal/browser"
 	"github.com/corneliusio/shots/internal/config"
@@ -57,7 +59,7 @@ func TestMultiEmptyConfiguration(t *testing.T) {
 	}
 }
 
-// Configuration problems are status 2 with a field path, per PLAN.md Section 10.
+// Configuration problems are status 2 with a field path.
 func TestMultiConfigurationErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -163,8 +165,8 @@ func TestMultiShots(t *testing.T) {
 		}
 	})
 
-	// One browser context serves the whole run, as upstream's does, so what one
-	// entry signs in or stores is there for the next.
+	// One browser context serves the whole run, so what one entry signs in or
+	// stores is there for the next.
 	t.Run("state carries from one entry to the next", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Chdir(dir)
@@ -389,6 +391,20 @@ func TestMultiServer(t *testing.T) {
 			stderr, _ := os.ReadFile(filepath.Join(dir, "stderr"))
 			t.Fatalf("%v; stderr:\n%s", err, stderr)
 		}
+		t.Cleanup(func() {
+			client := http.Client{Timeout: time.Second}
+			resp, err := client.Get("http://" + addr + "/__shots_test_stop__")
+			if err == nil {
+				resp.Body.Close()
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for answers(addr) && time.Now().Before(deadline) {
+				time.Sleep(10 * time.Millisecond)
+			}
+			if answers(addr) {
+				t.Errorf("the detached test server did not stop")
+			}
+		})
 		if err := get(addr); err != nil {
 			t.Fatalf("--leave-server stopped the server anyway: %v", err)
 		}

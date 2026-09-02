@@ -37,13 +37,10 @@ type Options struct {
 }
 
 // FilenameFor derives an automatic output filename from a URL and an extension
-// such as "png" or "har.zip", matching shot-scraper: take the host and path,
-// fold ".", "/" and "-" to "-", drop every character outside [A-Za-z0-9_-], and
-// append the extension. Query strings and fragments are excluded, and the
-// result never contains a path separator.
-//
-// Where upstream would produce a bare extension (a hidden ".png" for a URL with
-// no usable host or path), this returns "shot" as the stem instead.
+// such as "png" or "har.zip": take the host and path, fold ".", "/" and "-" to
+// "-", drop every character outside [A-Za-z0-9_-], and append the extension.
+// Query strings and fragments are excluded, and the result never contains a
+// path separator. An empty stem becomes "shot".
 func FilenameFor(rawURL, ext string) string {
 	return join(Stem(rawURL), ext)
 }

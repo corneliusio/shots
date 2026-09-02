@@ -156,8 +156,7 @@ func pathExt(rawURL string) string {
 
 func isJPEG(ext string) bool { return ext == "jpg" || ext == "jpeg" }
 
-// extensions maps a content type to the file extension an extracted body gets,
-// reproducing shot-scraper's table.
+// extensions maps a content type to the file extension an extracted body gets.
 var extensions = map[string]string{
 	"application/font-woff":  "woff",
 	"application/javascript": "js",

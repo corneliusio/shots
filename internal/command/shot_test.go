@@ -96,10 +96,15 @@ func readShotReport(t *testing.T, data []byte) shotReport {
 	return report
 }
 
+func runTake(t *testing.T, args ...string) result {
+	t.Helper()
+	return run(t, append([]string{"take"}, args...)...)
+}
+
 func shot(t *testing.T, args ...string) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "shot.png")
-	got := run(t, append(args, "-o", out)...)
+	got := runTake(t, append(args, "-o", out)...)
 	if got.code != 0 {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
@@ -236,7 +241,7 @@ func TestShotWaits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "shot.png")
-			got := run(t, append([]string{url, "-s", "#delayed", "-o", out}, tt.args...)...)
+			got := runTake(t, append([]string{url, "-s", "#delayed", "-o", out}, tt.args...)...)
 			if got.code != tt.want {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, tt.want, got.stderr)
 			}
@@ -264,7 +269,7 @@ func TestShotStable(t *testing.T) {
 		image.src = '/slow-image?ms=300';
 		document.body.append(image);
 	}`
-	got := run(t, srv.URL+"/index.html", "--stable", "-j", script, "--width", "200", "--height", "100", "-o", out)
+	got := runTake(t, srv.URL+"/index.html", "--stable", "-j", script, "--width", "200", "--height", "100", "-o", out)
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
@@ -289,7 +294,7 @@ func TestShotReport(t *testing.T) {
 	t.Run("success is JSON on stdout", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
 		url := srv.URL + "/redirect?to=/console.html"
-		got := run(t, url, "--height", "100", "--report", "-", "-o", out)
+		got := runTake(t, url, "--height", "100", "--report", "-", "-o", out)
 		if got.code != exitOK {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -308,7 +313,7 @@ func TestShotReport(t *testing.T) {
 		dir := t.TempDir()
 		out := filepath.Join(dir, "shot.png")
 		reportPath := filepath.Join(dir, "report.json")
-		got := run(t, srv.URL+"/index.html", "-s", "#missing", "--report", reportPath, "-o", out)
+		got := runTake(t, srv.URL+"/index.html", "-s", "#missing", "--report", reportPath, "-o", out)
 		if got.code != exitFailure {
 			t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitFailure, got.stderr)
 		}
@@ -324,7 +329,7 @@ func TestShotReport(t *testing.T) {
 
 	t.Run("page errors are collected", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/jserror.html", "--height", "100", "--report", "-", "-o", out)
+		got := runTake(t, srv.URL+"/jserror.html", "--height", "100", "--report", "-", "-o", out)
 		if got.code != exitOK {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -338,7 +343,7 @@ func TestShotReport(t *testing.T) {
 
 	t.Run("failed requests include HTTP and network failures", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/network.html", "--height", "100", "--wait-for", "window.done", "--report", "-", "-o", out)
+		got := runTake(t, srv.URL+"/network.html", "--height", "100", "--wait-for", "window.done", "--report", "-", "-o", out)
 		if got.code != exitOK {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -385,7 +390,7 @@ func TestShotRepeat(t *testing.T) {
 		sessionStorage.setItem('shots-count', count);
 		console.log('capture ' + count);
 	}`
-	got := runStdin(t, "\n\n", srv.URL+"/index.html", "--repeat", "--report", "-", "-j", script, "--height", "100", "-o", out)
+	got := runStdin(t, "\n\n", "take", srv.URL+"/index.html", "--repeat", "--report", "-", "-j", script, "--height", "100", "-o", out)
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
@@ -425,7 +430,7 @@ func TestShotSkipAndFail(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "shot.png")
-			got := run(t, append([]string{srv.URL + tt.path, "-o", out}, tt.args...)...)
+			got := runTake(t, append([]string{srv.URL + tt.path, "-o", out}, tt.args...)...)
 			if got.code != tt.want {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, tt.want, got.stderr)
 			}
@@ -469,7 +474,7 @@ func TestShotUsageErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := run(t, tt.args...); got.code != exitUsage {
+			if got := runTake(t, tt.args...); got.code != exitUsage {
 				t.Errorf("exit %d, want %d; stderr:\n%s", got.code, exitUsage, got.stderr)
 			}
 		})
@@ -480,7 +485,7 @@ func TestShotOutput(t *testing.T) {
 	srv := site(t)
 
 	t.Run("stdout carries a JPEG by default", func(t *testing.T) {
-		got := run(t, srv.URL+"/geometry.html", "--height", "100", "-o", "-")
+		got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "-o", "-")
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -493,7 +498,7 @@ func TestShotOutput(t *testing.T) {
 	})
 
 	t.Run("format selects PNG on stdout", func(t *testing.T) {
-		got := run(t, srv.URL+"/geometry.html", "--height", "100", "--format", "png", "-o", "-")
+		got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "--format", "png", "-o", "-")
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -504,7 +509,7 @@ func TestShotOutput(t *testing.T) {
 
 	t.Run("quality selects JPEG", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.jpg")
-		if got := run(t, srv.URL+"/geometry.html", "--height", "100", "--quality", "60", "-o", out); got.code != 0 {
+		if got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "--quality", "60", "-o", out); got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 		f, err := os.Open(out)
@@ -519,7 +524,7 @@ func TestShotOutput(t *testing.T) {
 
 	t.Run("a jpg extension selects JPEG", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.jpg")
-		if got := run(t, srv.URL+"/geometry.html", "--height", "100", "-o", out); got.code != 0 {
+		if got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "-o", out); got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 		f, err := os.Open(out)
@@ -534,7 +539,7 @@ func TestShotOutput(t *testing.T) {
 
 	t.Run("a png extension selects PNG", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		if got := run(t, srv.URL+"/geometry.html", "--height", "100", "-o", out); got.code != 0 {
+		if got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "-o", out); got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 		f, err := os.Open(out)
@@ -549,7 +554,7 @@ func TestShotOutput(t *testing.T) {
 
 	t.Run("an omitted output is named after the URL", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		if got := run(t, srv.URL+"/geometry.html", "--height", "100"); got.code != 0 {
+		if got := runTake(t, srv.URL+"/geometry.html", "--height", "100"); got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 		matches, err := filepath.Glob("*-geometry-html.jpg")
@@ -564,7 +569,7 @@ func TestShotOutput(t *testing.T) {
 		if err := os.WriteFile(out, []byte("keep me"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		got := run(t, srv.URL+"/geometry.html", "--height", "100", "-o", out, "--no-clobber")
+		got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "-o", out, "--no-clobber")
 		if got.code != exitFailure {
 			t.Fatalf("exit %d, want %d", got.code, exitFailure)
 		}
@@ -635,7 +640,7 @@ func TestShotJavaScript(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "shot.png")
-			got := run(t, srv.URL+"/geometry.html", "-j", tt.source, "-s", "[data-shot]", "-o", out)
+			got := runTake(t, srv.URL+"/geometry.html", "-j", tt.source, "-s", "[data-shot]", "-o", out)
 			if got.code != tt.want {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, tt.want, got.stderr)
 			}
@@ -650,7 +655,7 @@ func TestShotBasicAuth(t *testing.T) {
 	srv := site(t)
 	t.Run("credentials answer the challenge", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/basic-auth", "--height", "100", "--fail", "-o", out,
+		got := runTake(t, srv.URL+"/basic-auth", "--height", "100", "--fail", "-o", out,
 			"--auth-username", testsite.BasicAuthUser, "--auth-password", testsite.BasicAuthPassword)
 		if got.code != exitOK {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
@@ -658,7 +663,7 @@ func TestShotBasicAuth(t *testing.T) {
 	})
 	t.Run("without credentials the page is unauthorized", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/basic-auth", "--height", "100", "--fail", "-o", out)
+		got := runTake(t, srv.URL+"/basic-auth", "--height", "100", "--fail", "-o", out)
 		if got.code != exitFailure || !strings.Contains(got.stderr, "401") {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -670,7 +675,7 @@ func TestShotLogging(t *testing.T) {
 
 	t.Run("console messages reach stderr", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/console.html", "--height", "100", "--log-console", "-o", out)
+		got := runTake(t, srv.URL+"/console.html", "--height", "100", "--log-console", "-o", out)
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -684,7 +689,7 @@ func TestShotLogging(t *testing.T) {
 	t.Run("requests are logged as JSON lines", func(t *testing.T) {
 		dir := t.TempDir()
 		log := filepath.Join(dir, "requests.json")
-		got := run(t, srv.URL+"/geometry.html", "--height", "100", "--log-requests", log, "-o", filepath.Join(dir, "shot.png"))
+		got := runTake(t, srv.URL+"/geometry.html", "--height", "100", "--log-requests", log, "-o", filepath.Join(dir, "shot.png"))
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -715,14 +720,14 @@ func TestShotLogging(t *testing.T) {
 	// catch a callback that writes to a stream without synchronization.
 	t.Run("console logging does not race the progress line", func(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "shot.png")
-		got := run(t, srv.URL+"/busy.html", "--height", "100", "--log-console", "-o", out)
+		got := runTake(t, srv.URL+"/busy.html", "--height", "100", "--log-console", "-o", out)
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
 	})
 
 	t.Run("the request log and the image share standard output", func(t *testing.T) {
-		got := run(t, srv.URL+"/busy.html", "--height", "100", "--log-requests", "-", "-o", "-")
+		got := runTake(t, srv.URL+"/busy.html", "--height", "100", "--log-requests", "-", "-o", "-")
 		if got.code != 0 {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -736,7 +741,7 @@ func TestShotRedirect(t *testing.T) {
 	srv := site(t)
 	// A redirect must not leave the status of the redirect itself behind.
 	out := filepath.Join(t.TempDir(), "shot.png")
-	got := run(t, srv.URL+"/redirect", "--height", "100", "--fail", "-o", out)
+	got := runTake(t, srv.URL+"/redirect", "--height", "100", "--fail", "-o", out)
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 	}
@@ -756,7 +761,7 @@ func TestCDPURLIsExclusive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			args := append([]string{"example.com", "--cdp-url", "http://localhost:9222"}, tt.args...)
-			got := run(t, args...)
+			got := runTake(t, args...)
 			if got.code != exitUsage || !strings.Contains(got.stderr, "--cdp-url cannot be combined with "+tt.want) {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, exitUsage, got.stderr)
 			}
@@ -772,7 +777,7 @@ func TestCDPURLIsExclusive(t *testing.T) {
 	// count as a --browser-path that conflicts with --cdp-url.
 	t.Run("the environment does not conflict", func(t *testing.T) {
 		t.Setenv("SHOTS_BROWSER_PATH", filepath.Join(t.TempDir(), "absent"))
-		got := run(t, "example.com", "--cdp-url", "http://127.0.0.1:1", "--timeout", "2000")
+		got := runTake(t, "example.com", "--cdp-url", "http://127.0.0.1:1", "--timeout", "2000")
 		if got.code == exitUsage || strings.Contains(got.stderr, "cannot be combined") {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}
@@ -813,7 +818,7 @@ func TestShotPageOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			out := filepath.Join(t.TempDir(), "shot.png")
 			args := append([]string{srv.URL + "/index.html", "--height", "100", "--timeout", "3000", "--wait-for", tt.condition, "-o", out}, tt.args...)
-			if got := run(t, args...); got.code != tt.want {
+			if got := runTake(t, args...); got.code != tt.want {
 				t.Fatalf("exit %d, want %d; stderr:\n%s", got.code, tt.want, got.stderr)
 			}
 		})
@@ -832,7 +837,7 @@ func TestShotRepeatContinuesAfterFailure(t *testing.T) {
 				sessionStorage.setItem('shots-count', count);
 				if (count === %d) throw new Error('boom');
 			}`, failing)
-			got := runStdin(t, "\n\n", srv.URL+"/index.html", "--repeat", "--report", "-", "-j", script, "--height", "100", "-o", out)
+			got := runStdin(t, "\n\n", "take", srv.URL+"/index.html", "--repeat", "--report", "-", "-j", script, "--height", "100", "-o", out)
 			if got.code != exitFailure {
 				t.Errorf("exit %d, want %d", got.code, exitFailure)
 			}
@@ -858,7 +863,7 @@ func TestShotInsecure(t *testing.T) {
 	site(t).Close()
 	srv := httptest.NewTLSServer(testsite.Handler())
 	defer srv.Close()
-	if got := run(t, srv.URL+"/geometry.html", "-o", filepath.Join(t.TempDir(), "shot.png")); got.code == exitOK {
+	if got := runTake(t, srv.URL+"/geometry.html", "-o", filepath.Join(t.TempDir(), "shot.png")); got.code == exitOK {
 		t.Fatalf("a self-signed certificate was accepted without --insecure")
 	}
 	out := shot(t, srv.URL+"/geometry.html", "--insecure", "-s", "#box-a")

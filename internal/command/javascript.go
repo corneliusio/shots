@@ -10,7 +10,7 @@ import (
 	"github.com/corneliusio/shots/internal/browser"
 )
 
-// jsonIndent is upstream's json.dumps(indent=4).
+// jsonIndent keeps JavaScript results readable.
 const jsonIndent = "    "
 
 type javascriptCmd struct {

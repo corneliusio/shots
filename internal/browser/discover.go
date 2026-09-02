@@ -89,7 +89,7 @@ func discover(path string, headed bool) (string, error) {
 // that this machine does not have. Chrome for Testing archives carry no system
 // dependencies, so a bare Linux box can hold an installed browser that cannot
 // start; naming the libraries is more useful than the CDP timeout that follows.
-// shots never installs them (PLAN.md Section 11).
+// shots never installs them.
 //
 // It reports nothing on other platforms, or where ldd is unavailable.
 func MissingLibraries(ctx context.Context, path string) []string {

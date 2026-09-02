@@ -2,10 +2,20 @@ package command
 
 import (
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func fileURL(path string) string {
+	slashed := filepath.ToSlash(path)
+	if !strings.HasPrefix(slashed, "/") {
+		slashed = "/" + slashed
+	}
+	return (&url.URL{Scheme: "file", Path: slashed}).String()
+}
 
 func TestNormalizeURL(t *testing.T) {
 	dir := t.TempDir()
@@ -30,8 +40,8 @@ func TestNormalizeURL(t *testing.T) {
 		{"https is left alone", "https://example.com/x", "https://example.com/x"},
 		{"file is left alone", "file:///tmp/x.html", "file:///tmp/x.html"},
 		{"about is left alone", "about:blank", "about:blank"},
-		{"an existing file becomes a file URL", page, "file://" + filepath.ToSlash(page)},
-		{"a file URL escapes spaces", spaced, "file://" + filepath.ToSlash(filepath.Dir(spaced)) + "/a%20page.html"},
+		{"an existing file becomes a file URL", page, fileURL(page)},
+		{"a file URL escapes spaces", spaced, fileURL(spaced)},
 		{"a missing path is treated as a host", "not-a-file.html", "http://not-a-file.html"},
 		{"a directory is treated as a host", dir, "http://" + dir},
 	}

@@ -116,8 +116,8 @@ func (c *multiCmd) resolvedOutputs(cfg *config.Multi) []string {
 }
 
 // load reads the configuration, from standard input when it is "-". A malformed
-// or invalid configuration is a usage error, so it exits 2 with its field path,
-// as PLAN.md Section 10 requires; an unreadable file is an ordinary failure.
+// or invalid configuration is a usage error, so it exits 2 with its field path.
+// An unreadable file is an ordinary failure.
 func (c *multiCmd) load(e *env) (*config.Multi, error) {
 	cfg, err := c.read(e)
 	var invalid *config.Error
@@ -159,8 +159,7 @@ type batch struct {
 
 	browser *browser.Browser
 	// bctx is the browser context every entry's page is opened in, so that a
-	// cookie or a local-storage value one entry writes is there for the next,
-	// as it is upstream.
+	// cookie or a local-storage value one entry writes is there for the next.
 	bctx    *browser.Context
 	servers []*process.Server
 	failed  int
@@ -277,9 +276,8 @@ func (b *batch) start(ctx context.Context) error {
 }
 
 // shot takes one entry's screenshot on a fresh page. When a HAR is being
-// recorded, an entry with no output still loads its page — the traffic is the
-// point — but writes no image, which is what upstream's injected skip_shot key
-// does.
+// recorded, an entry with no output still loads its page because the traffic
+// is the point, but writes no image.
 func (b *batch) shot(ctx context.Context, entry config.Entry) (captureErr error) {
 	started := time.Now()
 	if b.diagnostics != nil {

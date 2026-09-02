@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -102,7 +103,7 @@ func TestUnzip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm()&0o111 == 0 {
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 			t.Errorf("chrome mode %s, want it executable", info.Mode())
 		}
 		target, err := os.Readlink(filepath.Join(dir, "app", "current"))

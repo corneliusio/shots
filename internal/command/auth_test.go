@@ -60,7 +60,7 @@ func TestAuthExportsCookiesAndStorage(t *testing.T) {
 		t.Errorf("local storage = %+v", items)
 	}
 
-	// PLAN.md Section 11: credentials never reach a log.
+	// Credentials never reach a log.
 	if strings.Contains(got.stderr, "granted") || strings.Contains(got.stderr, "hello") {
 		t.Errorf("stderr leaks a credential:\n%s", got.stderr)
 	}
@@ -128,9 +128,9 @@ func TestAuthStateRestores(t *testing.T) {
 	}
 }
 
-// PLAN.md Section 6 restores local storage by opening a page per recorded
-// origin, so a state file covering several origins restores all of them —
-// including origins the command never navigates to.
+// Local storage is restored by opening a page per recorded origin, so a state
+// file covering several origins restores all of them, including origins the
+// command never navigates to.
 func TestAuthStateRestoresEveryOrigin(t *testing.T) {
 	first, second := site(t), site(t)
 	state := browser.State{

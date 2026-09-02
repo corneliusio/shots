@@ -14,9 +14,8 @@ import (
 	"time"
 )
 
-// TestCLIInterrupt is the guarantee PLAN.md Section 14 states as "browser and
-// child process trees terminate after interrupt": an interrupted batch takes
-// down a server's own children, not just the process it started.
+// TestCLIInterrupt verifies that an interrupted batch takes down a server's own
+// children, not just the process it started.
 func TestCLIInterrupt(t *testing.T) {
 	dir := t.TempDir()
 	pids := filepath.Join(dir, "pids")

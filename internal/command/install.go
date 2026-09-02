@@ -24,8 +24,7 @@ func (c *installCmd) Run(ctx context.Context, e *env) error {
 		return err
 	}
 	// The archive carries no system dependencies, so a download can succeed and
-	// still leave a browser that cannot start. shots reports them and installs
-	// nothing (PLAN.md Section 5).
+	// still leave a browser that cannot start. Report missing libraries.
 	if missing := browser.MissingLibraries(ctx, exe); len(missing) > 0 {
 		return fmt.Errorf("%s needs shared libraries this machine does not have: %s", exe, strings.Join(missing, ", "))
 	}

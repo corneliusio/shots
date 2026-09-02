@@ -15,9 +15,6 @@ var passthrough = []string{"http://", "https://", "file://", "about:", "data:"}
 // NormalizeURL turns a command-line target into a URL: a path that exists
 // becomes an absolute file:// URL, a target that already names a supported
 // scheme is left alone, and anything else gets http://.
-//
-// This is upstream's url_or_file_path, plus the file://, about: and data:
-// passthroughs it lacks.
 func NormalizeURL(target string) (string, error) {
 	if strings.TrimSpace(target) == "" {
 		return "", usagef("a URL or path is required")

@@ -67,7 +67,7 @@ func TestPageScriptFile(t *testing.T) {
 	})
 
 	t.Run("--javascript and --js-file conflict", func(t *testing.T) {
-		got := run(t, srv.URL+"/geometry.html", "-j", "1", "--js-file", script, "-o", "-")
+		got := runTake(t, srv.URL+"/geometry.html", "-j", "1", "--js-file", script, "-o", "-")
 		if got.code != exitUsage || !strings.Contains(got.stderr, "cannot be used together") {
 			t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
 		}

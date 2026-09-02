@@ -3,6 +3,7 @@ package command
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -64,7 +65,7 @@ func TestHTMLFileOutput(t *testing.T) {
 	if !strings.Contains(string(data), "<h1 id=\"redirected\">redirected</h1>") {
 		t.Errorf("file = %q", data)
 	}
-	if len(got.stdout) > 0 || !strings.Contains(got.stderr, out) {
+	if len(got.stdout) > 0 || !strings.Contains(got.stderr, strconv.Quote(out)) {
 		t.Errorf("stdout = %q, stderr = %q", got.stdout, got.stderr)
 	}
 }

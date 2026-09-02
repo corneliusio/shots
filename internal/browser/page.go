@@ -48,7 +48,8 @@ type PageOptions struct {
 	ScaleFactor float64
 	// UserAgent overrides the browser's user agent.
 	UserAgent string
-	// ReducedMotion emulates prefers-reduced-motion: reduce.
+	// ReducedMotion emulates prefers-reduced-motion: reduce. False explicitly
+	// emulates no-preference so captures do not inherit the host setting.
 	ReducedMotion bool
 	// ColorScheme emulates prefers-color-scheme. Empty leaves Chrome's own.
 	ColorScheme string
@@ -84,9 +85,9 @@ type Context struct {
 	id cdp.BrowserContextID
 }
 
-// NewContext creates an isolated browser context and restores state into it —
-// steps 4 and 5 of PLAN.md Section 6's lifecycle — so every page opened in it
-// starts signed in. The caller must call [Context.Close].
+// NewContext creates an isolated browser context and restores state into it, so
+// every page opened in it starts signed in. The caller must call
+// [Context.Close].
 func (b *Browser) NewContext(ctx context.Context, state *State) (*Context, error) {
 	id, err := b.newBrowserContext(ctx)
 	if err != nil {
@@ -225,20 +226,20 @@ func (p *Page) configure(ctx context.Context, opts PageOptions) error {
 				return err
 			}
 		}
-		// One command carries both, because a second call replaces the first.
-		if opts.ReducedMotion || opts.ColorScheme != "" || opts.Media != "" {
-			media := emulation.SetEmulatedMedia().WithMedia(opts.Media)
-			features := make([]*emulation.MediaFeature, 0, 2)
-			if opts.ReducedMotion {
-				features = append(features, &emulation.MediaFeature{Name: "prefers-reduced-motion", Value: "reduce"})
-			}
-			if opts.ColorScheme != "" {
-				features = append(features, &emulation.MediaFeature{Name: "prefers-color-scheme", Value: opts.ColorScheme})
-			}
-			media = media.WithFeatures(features)
-			if err := media.Do(c); err != nil {
-				return err
-			}
+		// One command carries every feature, because a second call replaces the
+		// first. Reduced motion is always explicit so the host cannot change a
+		// capture's behavior.
+		motion := "no-preference"
+		if opts.ReducedMotion {
+			motion = "reduce"
+		}
+		features := []*emulation.MediaFeature{{Name: "prefers-reduced-motion", Value: motion}}
+		if opts.ColorScheme != "" {
+			features = append(features, &emulation.MediaFeature{Name: "prefers-color-scheme", Value: opts.ColorScheme})
+		}
+		media := emulation.SetEmulatedMedia().WithMedia(opts.Media).WithFeatures(features)
+		if err := media.Do(c); err != nil {
+			return err
 		}
 		if opts.BypassCSP {
 			if err := cdppage.SetBypassCSP(true).Do(c); err != nil {
@@ -452,9 +453,8 @@ func (p *Page) Exec(ctx context.Context, source string) error {
 
 // evaluate runs source, optionally bringing its value back.
 //
-// A source that evaluates to a function is called, as Playwright's
-// page.evaluate does, so both "document.title" and "() => { ... }" behave as
-// upstream users expect. Promises are awaited, at either step.
+// A source that evaluates to a function is called, so both "document.title"
+// and "() => { ... }" work. Promises are awaited at either step.
 func (p *Page) evaluate(ctx context.Context, source string, byValue bool) (json.RawMessage, error) {
 	if strings.TrimSpace(source) == "" {
 		return nil, nil

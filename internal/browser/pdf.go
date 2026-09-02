@@ -18,8 +18,7 @@ const pdfChunk = 256 << 10
 // PDFOptions configures [Page.PDF]. The zero value is Chrome's own default:
 // portrait Letter paper at scale 1, without background graphics.
 //
-// Margins are always zero, matching Playwright, which is what upstream's PDFs
-// look like.
+// Margins are always zero.
 type PDFOptions struct {
 	// PaperWidth and PaperHeight are in inches. Zero means Chrome's default.
 	PaperWidth, PaperHeight float64

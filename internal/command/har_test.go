@@ -231,7 +231,7 @@ func TestHARExtract(t *testing.T) {
 	srv := site(t)
 	base := filepath.Join(t.TempDir(), "site")
 	// A base path without a HAR extension names both the file and the
-	// directory, as upstream's -x does.
+	// directory.
 	got := run(t, "har", srv.URL+"/network.html", "-x", "-o", base, "--wait-for", "window.done")
 	if got.code != exitOK {
 		t.Fatalf("exit %d, stderr:\n%s", got.code, got.stderr)
@@ -275,7 +275,7 @@ func TestHARFlagsOnShot(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "shot.png")); err != nil {
 		t.Error(err)
 	}
-	// --har alone writes trace.har, as upstream's does.
+	// --har alone writes trace.har.
 	log := readHAR(t, filepath.Join(dir, "trace.har"))
 	if len(log.Entries) == 0 {
 		t.Error("trace.har has no entries")

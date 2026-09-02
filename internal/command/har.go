@@ -72,9 +72,8 @@ func (c *harCmd) validate() error {
 
 // output resolves the destination and whether it is zipped. An automatic name
 // is derived from the URL; an explicit one is used as given, except that
-// --extract treats a name without a HAR extension as the base path both the
-// file and the directory are built from, as upstream does. A .zip suffix zips
-// the file too, so naming one is enough.
+// --extract treats a name without a HAR extension as the base path for both
+// the file and directory. A .zip suffix also enables compression.
 func (c *harCmd) output(target string) (string, bool, error) {
 	zip := c.Zip || isZipPath(c.Output)
 	ext := "har"
@@ -88,8 +87,7 @@ func (c *harCmd) output(target string) (string, bool, error) {
 	return path, zip, err
 }
 
-// harFlags record a HAR file alongside a command's own output. Upstream has
-// them on multi; PLAN.md Section 7 puts them on shot too.
+// harFlags record a HAR file alongside a command's own output.
 type harFlags struct {
 	HAR     bool   `name:"har" help:"Record a HAR file named trace.har."`
 	HARZip  bool   `name:"har-zip" help:"Record a zipped HAR file named trace.har.zip."`
@@ -110,7 +108,7 @@ func (f harFlags) path() (string, bool, error) {
 	if zip {
 		ext = "har.zip"
 	}
-	// Upstream names the automatic file after the URL "trace".
+	// Automatic HAR files use the stable "trace" stem.
 	path, err := artifact.Unique("trace", ext)
 	return path, zip, err
 }

@@ -32,7 +32,7 @@ func TestFilenameFor(t *testing.T) {
 		{"", "png", "shot.png"},
 		{"///", "png", "shot.png"},
 		{"https://éxample.com/", "png", "xample-com.png"},
-		// Fragments and queries are outside netloc+path, like upstream.
+		// Fragments and queries do not contribute to automatic filenames.
 		{"https://example.com/a#b", "png", "example-com-a.png"},
 		{"?q=1", "png", "shot.png"},
 		{"https://example.com/../..", "png", "example-com.png"},

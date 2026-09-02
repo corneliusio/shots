@@ -1,6 +1,6 @@
 ---
 name: shots
-description: Capture screenshots, PDFs, HTML, accessibility trees, HAR files and screen recordings of web pages with the `shots` CLI (Chrome-based, a Go rewrite of shot-scraper). Use when asked to screenshot a page or element, check how a page renders, verify a UI change in a real browser, run JavaScript against a page, or record a browser demo. Do not use for driving a browser interactively step by step.
+description: Capture screenshots, PDFs, HTML, accessibility trees, HAR files and screen recordings of web pages with the Chrome-based `shots` CLI. Use when asked to screenshot a page or element, check how a page renders, verify a UI change in a real browser, run JavaScript against a page, or record a browser demo. Do not use for driving a browser interactively step by step.
 ---
 
 # shots
@@ -15,7 +15,7 @@ shots doctor              # run first if anything fails; exits 1 with the reason
 shots install             # download a pinned headless Chrome if none is found
 ```
 
-`shots example.com` is shorthand for `shots take example.com`.
+Commands are explicit. Use `shots take example.com` for a screenshot.
 
 ## Working as an agent
 

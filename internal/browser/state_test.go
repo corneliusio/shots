@@ -1,16 +1,15 @@
 package browser
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"testing"
 	"time"
 )
 
-// testdata/storage_state.json is in the shape Playwright's storage_state and
-// shot-scraper auth produce. Decoding it and encoding it again has to give the
-// same bytes back, or a state file would lose credentials as it passed
-// through shots.
+// testdata/storage_state.json uses Playwright's storage_state shape. Decoding
+// and encoding it again must preserve the data and formatting.
 func TestStateRoundTripsPlaywrightFormat(t *testing.T) {
 	want, err := os.ReadFile("testdata/storage_state.json")
 	if err != nil {
@@ -38,7 +37,8 @@ func TestStateRoundTripsPlaywrightFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(append(got, '\n')) != string(want) {
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
+	if !bytes.Equal(append(got, '\n'), want) {
 		t.Errorf("re-encoded state differs:\n%s", got)
 	}
 }

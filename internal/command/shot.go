@@ -346,9 +346,8 @@ func (c *shotCmd) selectors() browser.Selectors {
 	}
 }
 
-// viewportHeight is the height the viewport is set to. Upstream always sets a
-// viewport, defaulting the height to 720 when only a width is given, and
-// captures the full page when --height is absent.
+// viewportHeight defaults the viewport to 720 pixels while leaving screenshot
+// capture full-page when --height is absent.
 func (c *shotCmd) viewportHeight() int {
 	if c.Height > 0 {
 		return c.Height

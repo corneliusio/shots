@@ -52,8 +52,8 @@ func (t *tree) attach(cmd *exec.Cmd) error {
 }
 
 // terminate kills the job. Windows console processes have no graceful
-// equivalent of SIGTERM, so per PLAN.md Section 9 there is nothing gentler to
-// try first and [Grace] never elapses here.
+// equivalent of SIGTERM, so there is nothing gentler to try first and [Grace]
+// never elapses here.
 func (t *tree) terminate() error {
 	if err := windows.TerminateJobObject(t.job, 1); err != nil {
 		return fmt.Errorf("terminating job object: %w", err)

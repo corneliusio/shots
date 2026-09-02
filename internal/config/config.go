@@ -61,17 +61,16 @@ func (c Command) Empty() bool {
 	return strings.TrimSpace(c.Shell) == "" && len(c.Args) == 0
 }
 
-// Entry is one entry of a multi-shot run. Its parts run in field order — the
-// shell and server steps first, then a screenshot if URL is set — so a
-// single entry can prepare a page and capture it, as upstream does.
+// Entry is one entry of a multi-shot run. Its parts run in field order: shell
+// and server steps first, then a screenshot if URL is set. A single entry can
+// prepare a page and capture it.
 //
 // Every part is optional except that an entry with no step must request a
 // screenshot. Empty steps and an empty URL are rejected during decoding, so a
 // non-zero value means "present".
 //
-// The key set follows upstream's, recorded in COMPAT.md, with shots' documented
-// format key. Settings such as retina, scale factor, timeout, skip and fail are
-// command-line flags upstream, never per-entry keys, so they are not fields here.
+// Settings such as retina, scale factor, timeout, skip and fail belong to the
+// command, not an entry, so they are not fields here.
 type Entry struct {
 	Sh     Command `yaml:"sh"`
 	Server Command `yaml:"server"`
@@ -93,7 +92,7 @@ type Entry struct {
 	WaitFor    string `yaml:"wait_for"`
 	JavaScript string `yaml:"javascript"`
 	// JSFile is a path to a JavaScript file, resolved against [Multi].BaseDir,
-	// or a "gh:user/script" reference, which is left as written.
+	// or a "gh:user/repo/path" reference, which is left as written.
 	JSFile string `yaml:"js_file"`
 
 	// The singular and plural spellings of each selector key are aliases;

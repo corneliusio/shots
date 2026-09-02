@@ -19,9 +19,8 @@ import (
 )
 
 // chromeManifest pins one Chrome for Testing Headless Shell build per platform.
-// Chrome for Testing publishes download URLs but no hashes, so the checksums
-// are computed once by tools/pin-chrome and committed here; see PLAN.md Section
-// 5.
+// Chrome for Testing publishes download URLs but no hashes, so
+// tools/pin-chrome computes the checksums committed here.
 //
 //go:embed chrome.json
 var chromeManifest []byte

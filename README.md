@@ -3,10 +3,8 @@
 Take automated screenshots, PDFs, HTML, HAR files and screen recordings with
 Chrome, from the command line or from a YAML file.
 
-`shots` is a Chromium-first Go rewrite inspired by
-[shot-scraper](https://github.com/simonw/shot-scraper) 1.11. It needs Chrome or
-Chromium and nothing else: no Node, no Python, no Playwright, no WebDriver
-server. `ffmpeg` is needed only by `shots video`.
+`shots` needs Chrome or Chromium and nothing else: no Node, no Python, no
+Playwright, no WebDriver server. `ffmpeg` is needed only by `shots video`.
 
 ## Install
 
@@ -55,21 +53,17 @@ comparing their output.
 ## Quick start
 
 ```bash
-shots example.com                       # example-com.jpg
-shots example.com -o home.png -w 1280 -h 720
-shots https://example.com -s '#main' -p 20 -o main.png
+shots take example.com                       # example-com.jpg
+shots take example.com -o home.png -w 1280 -h 720
+shots take https://example.com -s '#main' -p 20 -o main.png
 shots javascript example.com 'document.title'
 shots pdf example.com -o page.pdf
 ```
 
-### Command names versus URLs
+### Explicit commands
 
-A URL as the first argument is shorthand for `take`, so `shots example.com` is
-`shots take example.com`, and `shots` on its own prints the help. **A first argument that
-names a command always selects that command**: `shots html` runs the `html`
-command and complains about the missing URL. To capture a host that collides
-with a command name, be explicit — `shots take html` — or use a path form,
-`shots ./html`.
+Every invocation names a command. Use `shots take example.com` for a screenshot;
+`shots example.com` is a usage error. `shots` on its own prints the help.
 
 ## Commands
 
@@ -319,7 +313,7 @@ shots auth https://example.com/login auth.json
 shots take https://example.com/account -a auth.json -o account.png
 ```
 
-State files written by `shot-scraper auth` work here unchanged, and vice versa.
+The state file uses Playwright's `storage_state` JSON format.
 
 ### `shots browser`
 
@@ -391,50 +385,6 @@ absolute paths and directory traversal. A browser is downloaded only when you
 run `shots install`, only from the pinned manifest, and only after its checksum
 matches.
 
-## Differences from shot-scraper 1.11
-
-`shots` keeps upstream's commands, flags and YAML keys where that is practical.
-The deliberate differences:
-
-- **`shot` is `take`.** `shots take example.com` reads as what it does, and a
-  bare URL is still shorthand for it. `shots` with no arguments prints the help instead
-  of failing on a missing URL.
-- **Chromium only.** No Firefox or WebKit, so upstream's `-b/--browser` is gone.
-  `--browser-path` picks an executable and `--cdp-url` attaches to a running
-  browser.
-- **No Playwright selector compatibility.** CSS selectors everywhere;
-  `text=` and `:has-text()` are not supported. `--js-selector` covers the rest.
-  `wait_for_url` in a storyboard is a glob (`**`, `*`, `?`).
-- **`-i` is `--interactive` on every command**, and the script-file flag is
-  `--js-file` everywhere, including `shots javascript` — upstream spends `-i` on
-  `javascript --input`. `--js-file` accepts a path, `-` for standard input, and
-  `gh:user/script.js`.
-- **JPEG quality 80 is the screenshot default.** `--format png`, a `.png`
-  output, or `omit_background` selects lossless PNG. A storyboard screenshot
-  selects PNG with a `.png` extension. Explicit formats and extensions must
-  agree.
-- **`multi` exits 1 when shots failed**, with a `1 of 2 entries failed` summary.
-  Upstream reports each failure and exits 0, which is the wrong default for a
-  scheduled job.
-- **A step's process group is cleaned up**, so a `sh:` step that backgrounds a
-  server does not leak it. `server:` is how a configuration says "keep this
-  running", and `--leave-server` is how it survives shots.
-- **`ffmpeg` is required for any video**, not only for `--mp4`: here the encoder
-  is the whole output path, and the check runs before the storyboard does.
-- **`shots video` has no `-o -`.** A WebM is a container ffmpeg seeks around
-  while writing; there is nothing useful to stream.
-- **Accessibility and HAR formatting are shots' own**, not Playwright's. Both are
-  stable and documented above; neither is byte-compatible with upstream.
-- **A skipped or failed page writes no HAR**, where upstream's lands anyway.
-- **Migration path:** authentication state is Playwright `storage_state` JSON, so
-  files from `shot-scraper auth` work unchanged. There is no `shot-scraper`
-  compatibility binary.
-- **No dedicated `python:` steps.** Use `sh:` to invoke an existing script or
-  interpreter. `server:` still accepts any long-running command.
-
-`COMPAT.md` is the upstream flag matrix read out of the pinned 1.11 commit, and
-`DECISIONS.md` records why each difference exists.
-
 ## Development
 
 ```bash
@@ -450,4 +400,4 @@ manifest.
 
 ## License
 
-Apache-2.0. See `LICENSE` and `NOTICE`, which records the upstream attribution.
+MIT. See `LICENSE`.

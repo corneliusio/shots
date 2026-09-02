@@ -21,8 +21,7 @@ import (
 // Grace is how long a child has to exit after being asked to.
 const Grace = 5 * time.Second
 
-// ReadyTimeout is how long [Server.Ready] waits for a server to answer, per
-// PLAN.md Section 7.
+// ReadyTimeout is how long [Server.Ready] waits for a server to answer.
 const ReadyTimeout = 30 * time.Second
 
 // Cmd is one external command. Shell is a command line for the platform shell;

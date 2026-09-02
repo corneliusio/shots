@@ -222,7 +222,7 @@ scenes:
 	}
 }
 
-// A storyboard problem is status 2 with a field path, per PLAN.md Section 10.
+// A storyboard problem is status 2 with a field path.
 func TestVideoStoryboardErrors(t *testing.T) {
 	tests := []struct {
 		name string

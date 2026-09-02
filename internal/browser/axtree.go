@@ -9,9 +9,9 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// AXNode is one node of the accessibility tree in the stable shots format
-// (PLAN.md Section 7): no Chrome node identifiers, ordered children, and
-// properties that are simply on folded into States.
+// AXNode is one node of the accessibility tree in the stable shots format. It
+// has no Chrome node identifiers, keeps children ordered, and folds simple
+// properties into States.
 type AXNode struct {
 	Role        string                     `json:"role"`
 	Name        string                     `json:"name,omitempty"`
