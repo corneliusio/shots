@@ -126,6 +126,16 @@ func TestPathNamesPreferHeadlessShell(t *testing.T) {
 }
 
 func TestHeadedDiscoverySkipsInstalledShell(t *testing.T) {
+	// Discovery uses a local fixture, independent of vendor download availability.
+	originalPinned := pinned
+	pinned = Manifest{
+		Version: "discovery-fixture",
+		Platforms: map[string]Build{
+			Platform(): {URL: "https://example.invalid/fixture.zip", Binary: "chrome-headless-shell"},
+		},
+	}
+	t.Cleanup(func() { pinned = originalPinned })
+
 	root := t.TempDir()
 	t.Setenv("SHOTS_BROWSER_PATH", "")
 	switch runtime.GOOS {
